@@ -1,10 +1,13 @@
 # frame_flutter_camera
 
-Finds Frame in connected System Bluetooth Devices, initiates a photo capture and returns the image with metadata to the host app for display in a list.
+Connects to Frame, initiates a photo capture and returns the image to the host app for display in a scrollable list.
+
+### Screenshots
+![Screenshot1](docs/screenshot1.png)
 
 ### Architecture
 ![Architecture](docs/Frame%20App%20Architecture%20-%20Camera.svg)
 
 ### See Also
-- [Frame Flutter Hello World](https://github.com/CitizenOneX/frame_flutter_helloworld)
+- [Simple Frame Hello World](https://github.com/CitizenOneX/simpleframe_helloworld)
 - [Frame Flutter Hello Hello](https://github.com/CitizenOneX/frame_flutter_hellohello)
