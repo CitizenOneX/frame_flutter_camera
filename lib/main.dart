@@ -53,7 +53,7 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
       await Future.delayed(const Duration(milliseconds: 150));
 
       // send a clear() so we do not burn-in the display, and there's no fram UI for this app
-      await connectedDevice!.sendString('frame.display.text(" ")', awaitResponse: false);
+      await connectedDevice!.sendString('frame.display.text(" ", 50, 100)', awaitResponse: false);
       await Future.delayed(const Duration(milliseconds: 150));
       await connectedDevice!.sendString('frame.display.show()', awaitResponse: false);
       await Future.delayed(const Duration(milliseconds: 150));
