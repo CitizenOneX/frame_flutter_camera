@@ -36,7 +36,7 @@ class BrilliantDevice {
   int? maxDataLength;
 
   BluetoothCharacteristic? _txChannel;
-  BluetoothCharacteristic? rxChannel;
+  BluetoothCharacteristic? _rxChannel;
 
   BrilliantDevice({
     required this.state,
@@ -49,25 +49,25 @@ class BrilliantDevice {
   String get uuid => device.remoteId.str;
 
   Stream<BrilliantDevice> get connectionState {
-    // FIXME this also listens for all connection states from all devices, shouldn't this just be our device?
-    return FlutterBluePlus.events.onConnectionStateChanged
+    // changed to only listen for connectionState data coming from the Frame device rather than all events from all devices as before
+    return device.connectionState
         .where((event) =>
-            event.connectionState == BluetoothConnectionState.connected ||
-            (event.connectionState == BluetoothConnectionState.disconnected &&
-                event.device.disconnectReason != null &&
-                event.device.disconnectReason!.code != 23789258))
+            event == BluetoothConnectionState.connected ||
+            (event == BluetoothConnectionState.disconnected &&
+                device.disconnectReason != null &&
+                device.disconnectReason!.code != 23789258))
         .asyncMap((event) async {
-      if (event.connectionState == BluetoothConnectionState.connected) {
+      if (event == BluetoothConnectionState.connected) {
         _log.info("Connection state stream: Connected");
         try {
-          return await BrilliantBluetooth._enableServices(event.device);
+          return await BrilliantBluetooth._enableServices(device);
         } catch (error) {
           _log.warning("Connection state stream: Invalid due to $error");
           return Future.error(BrilliantBluetoothException(error.toString()));
         }
       }
       _log.info(
-          "Connection state stream: Disconnected due to ${event.device.disconnectReason!.description}");
+          "Connection state stream: Disconnected due to ${device.disconnectReason!.description}");
       // Note: automatic reconnection isn't suitable for all cases, so it might
       // be better to leave this up to the sdk user to specify. iOS appears to
       // use FBP's native autoconnect, so if Android behaviour would change then
@@ -77,26 +77,26 @@ class BrilliantDevice {
       // }
       return BrilliantDevice(
         state: BrilliantConnectionState.disconnected,
-        device: event.device,
+        device: device,
       );
     });
   }
 
   Stream<String> get stringResponse {
-    // FIXME shouldn't this be just on the rx char, not all chars on all devices?
-    return FlutterBluePlus.events.onCharacteristicReceived
-        .where((event) => event.value[0] != 0x01)
+    // changed to only listen for data coming through the Frame's rx characteristic, not all attached devices as before
+    return _rxChannel!.onValueReceived
+        .where((event) => event[0] != 0x01)
         .map((event) {
-      if (event.value[0] != 0x02) {
-        _log.info("Received string: ${utf8.decode(event.value)}");
+      if (event[0] != 0x02) {
+        _log.info("Received string: ${utf8.decode(event)}");
       }
-      return utf8.decode(event.value);
+      return utf8.decode(event);
     });
   }
 
   Stream<List<int>> get dataResponse {
     // changed to only listen for data coming through the Frame's rx characteristic, not all attached devices as before
-    return rxChannel!.onValueReceived
+    return _rxChannel!.onValueReceived
         .where((event) => event[0] == 0x01)
         .map((event) {
       _log.fine("Received data: ${event.sublist(1)}");
@@ -147,7 +147,7 @@ class BrilliantDevice {
         return null;
       }
 
-      final response = await rxChannel!.onValueReceived
+      final response = await _rxChannel!.onValueReceived
           .timeout(const Duration(seconds: 10))
           .first;
 
@@ -383,7 +383,7 @@ class BrilliantBluetooth {
           if (characteristic.characteristicUuid ==
               Guid('7a230003-5475-a6a4-654c-8431f6ad49c4')) {
             _log.fine("Found Frame RX characteristic");
-            finalDevice.rxChannel = characteristic;
+            finalDevice._rxChannel = characteristic;
 
             await characteristic.setNotifyValue(true);
             _log.fine("Enabled RX notifications");
@@ -397,7 +397,7 @@ class BrilliantBluetooth {
       }
     }
 
-    if (finalDevice._txChannel != null && finalDevice.rxChannel != null) {
+    if (finalDevice._txChannel != null && finalDevice._rxChannel != null) {
       finalDevice.state = BrilliantConnectionState.connected;
       return finalDevice;
     }
