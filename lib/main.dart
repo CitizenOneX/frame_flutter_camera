@@ -26,6 +26,13 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
   final List<Image> _imageList = [];
   final Stopwatch _stopwatch = Stopwatch();
 
+  // camera settings
+  int _qualityIndex = 2;
+  final List<double> _qualityValues = [10, 25, 50, 100];
+  double _exposure = 0.0; // -2.0 to 2.0
+  String _meteringMode = 'SPOT';
+  final List<String> _meteringModeValues = ['SPOT', 'CENTER_WEIGHTED', 'AVERAGE'];
+
   MainAppState() {
     Logger.root.level = Level.INFO;
     Logger.root.onRecord.listen((record) {
@@ -108,7 +115,7 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
       NativeShutterSound.play();
       _stopwatch.reset();
       _stopwatch.start();
-      response = await connectedDevice!.sendString('cameraCaptureAndSend(50,0.5,"SPOT")', awaitResponse: false);
+      response = await connectedDevice!.sendString('cameraCaptureAndSend(${_qualityValues[_qualityIndex].round().toString()},$_exposure,"$_meteringMode")', awaitResponse: false);
 
     } catch (e) {
       _log.fine('Error executing application logic: $e');
@@ -168,6 +175,69 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
       home: Scaffold(
         appBar: AppBar(
           title: const Text("Frame Camera"),
+        ),
+        drawer: Drawer(
+          child: ListView(
+            padding: EdgeInsets.zero,
+            children: <Widget>[
+              const DrawerHeader(
+                decoration: BoxDecoration(
+                  color: Colors.blue,
+                ),
+                child: Text('Camera Settings',
+                  style: TextStyle(color: Colors.white, fontSize: 24),
+                  ),
+              ),
+              ListTile(
+                title: const Text('Quality'),
+                subtitle: Slider(
+                  value: _qualityIndex.toDouble(),
+                  min: 0,
+                  max: _qualityValues.length - 1,
+                  divisions: _qualityValues.length - 1,
+                  label: _qualityValues[_qualityIndex].toString(),
+                  onChanged: (double value) {
+                    setState(() {
+                      _qualityIndex = value.toInt();
+                    });
+                  },
+                ),
+              ),
+              ListTile(
+                title: const Text('Exposure'),
+                subtitle: Slider(
+                  value: _exposure,
+                  min: -2,
+                  max: 2,
+                  divisions: 8,
+                  label: _exposure.toString(),
+                  onChanged: (double value) {
+                    setState(() {
+                      _exposure = value;
+                    });
+                  },
+                ),
+              ),
+              ListTile(
+                title: const Text('Metering Mode'),
+                subtitle: DropdownButton<String>(
+                  value: _meteringMode,
+                  onChanged: (String? newValue) {
+                    setState(() {
+                      _meteringMode = newValue!;
+                    });
+                  },
+                  items: _meteringModeValues
+                      .map<DropdownMenuItem<String>>((String value) {
+                    return DropdownMenuItem<String>(
+                      value: value,
+                      child: Text(value),
+                    );
+                  }).toList(),
+                ),
+              ),
+            ],
+          ),
         ),
         body: Flex(
           direction: Axis.vertical,
