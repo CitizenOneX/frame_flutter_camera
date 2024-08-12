@@ -7,6 +7,7 @@ import 'brilliant_bluetooth.dart';
 /// basic State Machine for the app; mostly for bluetooth lifecycle,
 /// all app activity expected to take place during "running" state
 enum ApplicationState {
+  initializing,
   disconnected,
   scanning,
   connecting,
@@ -16,15 +17,19 @@ enum ApplicationState {
   disconnecting,
 }
 
-final _log = Logger("SimpleFrameApp");
+final _log = Logger("SFA");
 
 mixin SimpleFrameAppState<T extends StatefulWidget> on State<T> {
   ApplicationState currentState = ApplicationState.disconnected;
+  int? _batt;
 
   // Use BrilliantBluetooth for communications with Frame
-  BrilliantDevice? connectedDevice;
+  BrilliantDevice? frame;
   StreamSubscription? _scanStream;
   StreamSubscription<BrilliantDevice>? _deviceStateSubs;
+  StreamSubscription<List<int>>? _rxAppData;
+  StreamSubscription<String>? _rxStdOut;
+
 
   Future<void> scanForFrame() async {
     currentState = ApplicationState.scanning;
@@ -70,26 +75,21 @@ mixin SimpleFrameAppState<T extends StatefulWidget> on State<T> {
   Future<void> connectToScannedFrame(BrilliantScannedDevice device) async {
     try {
       _log.fine('connecting to scanned device: $device');
-      connectedDevice = await BrilliantBluetooth.connect(device);
-      _log.fine('device connected: ${connectedDevice!.device.remoteId}');
+      frame = await BrilliantBluetooth.connect(device);
+      _log.fine('device connected: ${frame!.device.remoteId}');
 
       // subscribe to connection state for the device to detect disconnections
       // so we can transition the app to a disconnected state
-      await _deviceStateSubs?.cancel();
-      _deviceStateSubs = connectedDevice!.connectionState.listen((bd) {
-        _log.fine('Frame connection state change: ${bd.state.name}');
-        if (bd.state == BrilliantConnectionState.disconnected) {
-          currentState = ApplicationState.disconnected;
-          _log.fine('Frame disconnected: currentState: $currentState');
-          if (mounted) setState(() {});
-        }
-      });
+      await _refreshDeviceStateSubs();
+
+      // refresh subscriptions to String rx and Data rx
+      _refreshRxSubs();
 
       try {
         // terminate the main.lua (if currently running) so we can run our lua code
         // TODO looks like if the signal comes too early after connection, it isn't registered
         await Future.delayed(const Duration(milliseconds: 500));
-        await connectedDevice!.sendBreakSignal();
+        await frame!.sendBreakSignal();
 
         // Application is ready to go!
         currentState = ApplicationState.ready;
@@ -110,32 +110,27 @@ mixin SimpleFrameAppState<T extends StatefulWidget> on State<T> {
   }
 
   Future<void> reconnectFrame() async {
-    if (connectedDevice != null) {
+    if (frame != null) {
       try {
-        _log.fine('connecting to existing device: $connectedDevice');
+        _log.fine('reconnecting to existing device: $frame');
         // TODO get the BrilliantDevice return value from the reconnect call?
         // TODO am I getting duplicate devices/subscriptions?
         // Rather than fromUuid(), can I just call connectedDevice.device.connect() myself?
-        await BrilliantBluetooth.reconnect(connectedDevice!.uuid);
-        _log.fine('device connected: $connectedDevice');
+        await BrilliantBluetooth.reconnect(frame!.uuid);
+        _log.fine('device connected: $frame');
 
         // subscribe to connection state for the device to detect disconnections
         // and transition the app to a disconnected state
-        await _deviceStateSubs?.cancel();
-        _deviceStateSubs = connectedDevice!.connectionState.listen((bd) {
-          _log.fine('Frame connection state change: ${bd.state.name}');
-          if (bd.state == BrilliantConnectionState.disconnected) {
-            currentState = ApplicationState.disconnected;
-            _log.fine('Frame disconnected');
-            if (mounted) setState(() {});
-          }
-        });
+        await _refreshDeviceStateSubs();
+
+        // refresh subscriptions to String rx and Data rx
+        _refreshRxSubs();
 
         try {
           // terminate the main.lua (if currently running) so we can run our lua code
           // TODO looks like if the signal comes too early after connection, it isn't registered
           await Future.delayed(const Duration(milliseconds: 500));
-          await connectedDevice!.sendBreakSignal();
+          await frame!.sendBreakSignal();
 
           // Application is ready to go!
           currentState = ApplicationState.ready;
@@ -162,7 +157,7 @@ mixin SimpleFrameAppState<T extends StatefulWidget> on State<T> {
   }
 
   Future<void> scanOrReconnectFrame() async {
-    if (connectedDevice != null) {
+    if (frame != null) {
       return reconnectFrame();
     }
     else {
@@ -171,17 +166,23 @@ mixin SimpleFrameAppState<T extends StatefulWidget> on State<T> {
   }
 
   Future<void> disconnectFrame() async {
-    if (connectedDevice != null) {
+    if (frame != null) {
       try {
         _log.fine('Disconnecting from Frame');
         // break first in case it's sleeping - otherwise the reset won't work
-        await connectedDevice!.sendBreakSignal();
+        await frame!.sendBreakSignal();
         _log.fine('Break signal sent');
         // TODO the break signal needs some more time to be processed before we can reliably send the reset signal, by the looks of it
         await Future.delayed(const Duration(milliseconds: 500));
 
+        // cancel the stdout and data subscriptions
+        _rxStdOut?.cancel();
+        _log.fine('StdOut subscription canceled');
+        _rxAppData?.cancel();
+        _log.fine('AppData subscription canceled');
+
         // try to reset device back to running main.lua
-        await connectedDevice!.sendResetSignal();
+        await frame!.sendResetSignal();
         _log.fine('Reset signal sent');
         // TODO the reset signal doesn't seem to be processed in time if we disconnect immediately, so we introduce a delay here to give it more time
         // The sdk's sendResetSignal actually already adds 100ms delay
@@ -194,7 +195,7 @@ mixin SimpleFrameAppState<T extends StatefulWidget> on State<T> {
 
       try{
           // try to disconnect cleanly if the device allows
-          await connectedDevice!.disconnect();
+          await frame!.disconnect();
       } catch (e) {
           _log.fine('Error while calling disconnect(): $e');
       }
@@ -203,14 +204,77 @@ mixin SimpleFrameAppState<T extends StatefulWidget> on State<T> {
       _log.fine('Current device is null, disconnection not possible');
     }
 
+    _batt = null;
     currentState = ApplicationState.disconnected;
     if (mounted) setState(() {});
+  }
+
+  Future<void> _refreshDeviceStateSubs() async {
+    await _deviceStateSubs?.cancel();
+    _deviceStateSubs = frame!.connectionState.listen((bd) {
+      _log.fine('Frame connection state change: ${bd.state.name}');
+      if (bd.state == BrilliantConnectionState.disconnected) {
+        currentState = ApplicationState.disconnected;
+        _log.fine('Frame disconnected');
+        if (mounted) setState(() {});
+      }
+    });
+  }
+
+  void _refreshRxSubs() {
+    _rxAppData?.cancel();
+    _rxAppData = frame!.dataResponse.listen((data) {
+      if (data.length > 1) {
+        // at this stage simple frame app only handles battery level message 0x0c
+        // let any other application-specific message be handled by the app when
+        // they listen on dataResponse
+        if (data[0] == 0x0c) {
+          _batt = data[1];
+          if (mounted) setState(() {});
+        }
+      }
+    });
+
+    // subscribe one listener to the stdout stream
+    _rxStdOut?.cancel();
+    _rxStdOut = frame!.stringResponse.listen((data) {});
+  }
+
+  Widget getBatteryWidget() {
+    if (_batt == null) return Container();
+
+    IconData i;
+    if (_batt! > 87.5) {
+      i = Icons.battery_full;
+    }
+    else if (_batt! > 75) {
+      i = Icons.battery_6_bar;
+    }
+    else if (_batt! > 62.5) {
+      i = Icons.battery_5_bar;
+    }
+    else if (_batt! > 50) {
+      i = Icons.battery_4_bar;
+    }
+    else if (_batt! > 45) {
+      i = Icons.battery_3_bar;
+    }
+    else if (_batt! > 25) {
+      i = Icons.battery_2_bar;
+    }
+    else if (_batt! > 12.5) {
+      i = Icons.battery_1_bar;
+    }
+    else {
+      i = Icons.battery_0_bar;
+    }
+
+    return Row(children: [Text('$_batt%'), Icon(i, size: 16,)]);
   }
 
   /// the SimpleFrameApp subclass provides the application-specific code
   Future<void> runApplication();
 
   /// the SimpleFrameApp subclass provides the application-specific code
-  Future<void> stopApplication();
-
+  Future<void> interruptApplication();
 }

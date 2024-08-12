@@ -82,6 +82,7 @@ class BrilliantDevice {
     });
   }
 
+  // logs each string message (messages without the 0x01 first byte) and provides a stream of the utf8-decoded strings
   Stream<String> get stringResponse {
     // changed to only listen for data coming through the Frame's rx characteristic, not all attached devices as before
     return _rxChannel!.onValueReceived
