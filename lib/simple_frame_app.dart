@@ -20,6 +20,9 @@ enum ApplicationState {
 final _log = Logger("SFA");
 
 mixin SimpleFrameAppState<T extends StatefulWidget> on State<T> {
+  // Frame to Phone flags
+  static const batteryStatusFlag = 0x0c;
+
   ApplicationState currentState = ApplicationState.disconnected;
   int? _batt;
 
@@ -228,7 +231,7 @@ mixin SimpleFrameAppState<T extends StatefulWidget> on State<T> {
         // at this stage simple frame app only handles battery level message 0x0c
         // let any other application-specific message be handled by the app when
         // they listen on dataResponse
-        if (data[0] == 0x0c) {
+        if (data[0] == batteryStatusFlag) {
           _batt = data[1];
           if (mounted) setState(() {});
         }

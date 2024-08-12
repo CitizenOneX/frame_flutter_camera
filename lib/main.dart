@@ -4,7 +4,6 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
-//import 'package:native_shutter_sound/native_shutter_sound.dart'; FIXME
 import 'simple_frame_app.dart';
 
 void main() => runApp(const MainApp());
@@ -19,12 +18,16 @@ class MainApp extends StatefulWidget {
 }
 
 class MainAppState extends State<MainApp> with SimpleFrameAppState {
-  // stream subscription to pull data back from camera
-  StreamSubscription<List<int>>? _dataResponseStream;
+  // Phone to Frame flags
+  static const takePhotoFlag = 0x0d;
+  // Frame to Phone flags
+  static const nonFinalChunkFlag = 0x07;
+  static const finalChunkFlag = 0x08;
 
   // the list of images to show in the scolling list view
   final List<Image> _imageList = [];
   final Stopwatch _stopwatch = Stopwatch();
+  bool _cameraReady = false;
 
   // camera settings
   int _qualityIndex = 2;
@@ -39,7 +42,7 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
   int _gainLimit = 248;     // 0 <= val <= 248
 
   MainAppState() {
-    Logger.root.level = Level.ALL;
+    Logger.root.level = Level.INFO;
     Logger.root.onRecord.listen((record) {
       debugPrint('${record.level.name}: ${record.time}: ${record.message}');
     });
@@ -52,80 +55,111 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
     if (mounted) setState(() {});
 
     try {
-      _dataResponseStream?.cancel();
       String? response;
 
       // send a break in case anything is still running in the background - otherwise future lua calls will be ignored
       await frame!.sendBreakSignal();
       await Future.delayed(const Duration(milliseconds: 150));
 
-      // print out the battery level while testing so we know when we're getting low
-      response = await frame!.sendString('print(frame.battery_level())', awaitResponse: true);
-      _log.info('print(frame.battery_level()) response: $response');
-      await Future.delayed(const Duration(milliseconds: 150));
-
       // send a clear() so we do not burn-in the display, and there's no fram UI for this app
-      await frame!.sendString('frame.display.text(" ", 50, 100)', awaitResponse: false);
-      await Future.delayed(const Duration(milliseconds: 150));
-      await frame!.sendString('frame.display.show()', awaitResponse: false);
+      response = await frame!.sendString('frame.display.text(" ", 50, 100);frame.display.show();print(0)', awaitResponse: true);
       await Future.delayed(const Duration(milliseconds: 150));
 
       // clean up by deleting any prior camera script
       response = await frame!.sendString('frame.file.remove("library_functions.lua");print(0)', awaitResponse: true);
-      //await Future.delayed(const Duration(milliseconds: 500));
 
       // upload the camera script
       await frame!.uploadScript('library_functions.lua', 'assets/library_functions.lua');
-      //await Future.delayed(const Duration(milliseconds: 500));
       response = await frame!.sendString('require("library_functions")', awaitResponse: false);
-      //await Future.delayed(const Duration(milliseconds: 500));
-      response = await frame!.sendString('print(0)', awaitResponse: true);
 
-      // the image data as a list of bytes that accumulates with each packet
-      List<int> imageData = List.empty(growable: true);
-
-      // set up the data response handler for the photo we're about to request
-      _dataResponseStream = frame!.dataResponse.listen((data) {
-        // non-final chunks have a first byte of 7
-        if (data[0] == 7) {
-          imageData += data.sublist(1);
-        }
-        // the last chunk has a first byte of 8 so stop after this
-        else if (data[0] == 8) {
-          _stopwatch.stop();
-          imageData += data.sublist(1);
-          _dataResponseStream!.cancel();
-
-          try {
-            Image im = Image.memory(Uint8List.fromList(imageData));
-            _imageList.insert(0, im);
-
-            currentState = ApplicationState.ready;
-            if (mounted) setState(() {});
-            _log.info('Image file size in bytes: ${imageData.length}, elapsedMs: ${_stopwatch.elapsedMilliseconds}');
-
-          } catch (e) {
-            _log.severe('Error converting bytes to image: $e');
-
-            currentState = ApplicationState.ready;
-            if (mounted) setState(() {});
-          }
-        }
-        else {
-          _log.severe('Unexpected initial byte: ${data[0]}');
-          frame!.dataResponse.drain([8]);
-        }
-      });
-
-      // now send the lua command to request a photo from the Frame
-      //NativeShutterSound.play();
-      _stopwatch.reset();
-      _stopwatch.start();
-      response = await frame!.sendString('camera_capture_and_send{quality=${_qualityValues[_qualityIndex].round().toString()},auto_exp_gain_times=$_autoExpGainTimes,metering_mode="${_meteringModeValues[_meteringModeIndex]}",exposure=$_exposure,shutter_kp=$_shutterKp,shutter_limit=$_shutterLimit,gain_kp=$_gainKp,gain_limit=$_gainLimit};print(0)', awaitResponse: true);
-      //await Future.delayed(const Duration(milliseconds: 500));
+      _cameraReady = true;
+       if (mounted) setState(() {});
 
     } catch (e) {
       _log.fine('Error executing application logic: $e');
+      currentState = ApplicationState.ready;
+      if (mounted) setState(() {});
+    }
+  }
+
+  /// Corresponding parser in frame_app.lua data_handler()
+  List<int> makeTakePhotoPayload() {
+    // exposure is a double in the range -2.0 to 2.0, so map that to an unsigned byte 0..255
+    // by multiplying by 64, adding 128 and truncating
+    int intExp;
+    if (_exposure >= 2.0) {
+      intExp = 255;
+    }
+    else if (_exposure <= -2.0) {
+      intExp = 0;
+    }
+    else {
+      intExp = ((_exposure * 64) + 128).floor();
+    }
+
+    int intShutKp = (_shutterKp * 10).toInt();
+    int intShutLimMsb = _shutterLimit >> 8;
+    int intShutLimLsb = _shutterLimit & 0xFF;
+    int intGainKp = (_gainKp * 10).toInt();
+
+    return [takePhotoFlag, _qualityIndex, _autoExpGainTimes, _meteringModeIndex,
+            intExp, intShutKp, intShutLimMsb, intShutLimLsb, intGainKp, _gainLimit];
+  }
+
+  Future<void> takePhoto() async {
+    _cameraReady = false;
+    if (mounted) setState(() {});
+    _stopwatch.reset();
+    _stopwatch.start();
+
+    // now send the lua command to request a photo from the Frame
+    await frame!.sendData(makeTakePhotoPayload());
+
+    // the image data as a list of bytes that accumulates with each packet
+    // FIXME make a 25k buffer to start? Get filesize from Frame? Uint8List? ByteBuffer directly?
+    List<int> imageData = List.empty(growable: true);
+
+    // read the response for the photo we just requested - a stream of packets of bytes
+    await for (final data in frame!.dataResponse) {
+      // non-final chunks have a first byte of 7
+      if (data[0] == nonFinalChunkFlag) {
+        imageData += data.sublist(1);
+      }
+      // the last chunk has a first byte of 8 so stop after this
+      else if (data[0] == finalChunkFlag) {
+        _stopwatch.stop();
+        // TODO atm the final chunk just has the final chunk flag and the total number of chunks sent
+        //imageData += data.sublist(1);
+
+        try {
+          Image im = Image.memory(Uint8List.fromList(imageData));
+          _imageList.insert(0, im);
+
+          currentState = ApplicationState.running;
+          if (mounted) setState(() {});
+          _log.info('Image file size in bytes: ${imageData.length}, elapsedMs: ${_stopwatch.elapsedMilliseconds}');
+          _cameraReady = true;
+          // break out of the "await for" and stop listening to the stream
+          break;
+
+        } catch (e) {
+          _log.severe('Error converting bytes to image: $e');
+
+          currentState = ApplicationState.ready;
+          if (mounted) setState(() {});
+          break;
+        }
+      }
+      else if (data[0] == SimpleFrameAppState.batteryStatusFlag) {
+        // ignore
+      }
+      else {
+        _log.severe('Unexpected initial byte: ${data[0]}');
+        frame!.dataResponse.drain([finalChunkFlag]);
+        currentState = ApplicationState.ready;
+        if (mounted) setState(() {});
+        break;
+      }
     }
   }
 
@@ -133,9 +167,7 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
   Future<void> interruptApplication() async {
     currentState = ApplicationState.stopping;
     if (mounted) setState(() {});
-  }
 
-  Future<void> sendBreak() async {
     await frame!.sendBreakSignal();
     currentState = ApplicationState.ready;
     if (mounted) setState(() {});
@@ -149,7 +181,7 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
     switch (currentState) {
       case ApplicationState.disconnected:
         pfb.add(TextButton(onPressed: scanOrReconnectFrame, child: const Text('Connect Frame')));
-        pfb.add(const TextButton(onPressed: null, child: Text('Take Photo')));
+        pfb.add(const TextButton(onPressed: null, child: Text('Start')));
         pfb.add(const TextButton(onPressed: null, child: Text('Finish')));
         break;
 
@@ -159,20 +191,19 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
       case ApplicationState.stopping:
       case ApplicationState.disconnecting:
         pfb.add(const TextButton(onPressed: null, child: Text('Connect Frame')));
-        pfb.add(const TextButton(onPressed: null, child: Text('Take Photo')));
+        pfb.add(const TextButton(onPressed: null, child: Text('Start')));
         pfb.add(const TextButton(onPressed: null, child: Text('Finish')));
         break;
 
       case ApplicationState.ready:
         pfb.add(const TextButton(onPressed: null, child: Text('Connect Frame')));
-        pfb.add(TextButton(onPressed: runApplication, child: const Text('Take Photo')));
+        pfb.add(TextButton(onPressed: runApplication, child: const Text('Start')));
         pfb.add(TextButton(onPressed: disconnectFrame, child: const Text('Finish')));
         break;
 
       case ApplicationState.running:
         pfb.add(const TextButton(onPressed: null, child: Text('Connect Frame')));
-        pfb.add(const TextButton(onPressed: null, child: Text('Take Photo')));
-        pfb.add(TextButton(onPressed: sendBreak, child: const Text('Break')));
+        pfb.add(TextButton(onPressed: interruptApplication, child: const Text('Stop')));
         pfb.add(const TextButton(onPressed: null, child: Text('Finish')));
         break;
     }
@@ -345,6 +376,7 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
             ),
           ]
         ),
+        floatingActionButton: _cameraReady ? FloatingActionButton(onPressed: takePhoto, child: const Icon(Icons.camera_alt)) : null,
         persistentFooterButtons: pfb,
       ),
     );
