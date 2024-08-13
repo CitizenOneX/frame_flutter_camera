@@ -9,8 +9,7 @@ local metering_values = {'SPOT', 'CENTER_WEIGHTED', 'AVERAGE'}
 
 -- Frame to phone flags
 BATTERY_LEVEL_FLAG = "\x0c"
-NON_FINAL_CHUNK_FLAG = "\x07"
-FINAL_CHUNK_FLAG = "\x08"
+IMAGE_CHUNK_FLAG = "\x07"
 
 -- Phone to Frame flags
 TAKE_PHOTO_FLAG = 0x0d
@@ -42,14 +41,6 @@ function camera_capture_and_send(args)
 	shutter_limit = args.shutter_limit or 6000
 	gain_kp = args.gain_kp or 1.0
 	gain_limit = args.gain_limit or 248.0
-	print(quality)
-	print(auto_exp_gain_times)
-	print(metering_mode)
-	print(exposure)
-	print(shutter_kp)
-	print(shutter_limit)
-	print(gain_kp)
-	print(gain_limit)
 
 	for run=1,auto_exp_gain_times,1 do
 		frame.camera.auto { metering = metering_mode, exposure = exposure, shutter_kp = shutter_kp, shutter_limit = shutter_limit, gain_kp = gain_kp, gain_limit = gain_limit }
@@ -58,20 +49,35 @@ function camera_capture_and_send(args)
 
 	frame.camera.capture { quality_factor = quality }
 
-	local chunkIndex = 0
-	frame.sleep(0.5)
+	local first_chunk = true
+
+	-- TODO is it really true we need to pause here? earlier tests showed we didn't but now it seems we do(!)
+	-- TODO keep checking register 0x21 every few ms until it gives the same result twice in a row?
+	frame.sleep(0.5) -- 0.1? 0.2? 0.5? Quality dependent?
+
+	local data = ''
 	local image_size = frame.fpga.read(0x21, 2)
 	print(string.byte(image_size, 1) << 8 | string.byte(image_size, 2))
 
 	while true do
-		local data = frame.camera.read(frame.bluetooth.max_length() - 4)
-		if (data == nil) then
-			pcall(frame.bluetooth.send, FINAL_CHUNK_FLAG .. string.char(chunkIndex))
-			break
+		if first_chunk then
+			first_chunk = false
+			data = frame.camera.read(frame.bluetooth.max_length() - 6)
+			print(string.len(data)) -- TODO remove
+			if (data ~= nil) then
+				-- TODO check that image_size gets sent across properly, or do I need to string.char, string.byte etc?
+				pcall(frame.bluetooth.send, image_size .. IMAGE_CHUNK_FLAG .. string.char(chunk_index))
+			end
 		else
-			pcall(frame.bluetooth.send, NON_FINAL_CHUNK_FLAG .. data)
-			chunkIndex = chunkIndex + 1
-			frame.sleep(0.02)
+			data = frame.camera.read(frame.bluetooth.max_length() - 4)
+			print(string.len(data)) -- TODO remove
+			if (data == nil) then
+				break
+			else
+				pcall(frame.bluetooth.send, IMAGE_CHUNK_FLAG .. data)
+				chunk_index = chunk_index + 1
+				frame.sleep(0.02)
+			end
 		end
 	end
 end

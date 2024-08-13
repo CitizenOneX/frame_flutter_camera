@@ -21,11 +21,11 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
   // Phone to Frame flags
   static const takePhotoFlag = 0x0d;
   // Frame to Phone flags
-  static const nonFinalChunkFlag = 0x07;
-  static const finalChunkFlag = 0x08;
+  static const imageChunkFlag = 0x07;
 
   // the list of images to show in the scolling list view
   final List<Image> _imageList = [];
+  final List<ImageMetadata> _imageMeta = [];
   final Stopwatch _stopwatch = Stopwatch();
   bool _cameraReady = false;
 
@@ -55,22 +55,20 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
     if (mounted) setState(() {});
 
     try {
-      String? response;
-
       // send a break in case anything is still running in the background - otherwise future lua calls will be ignored
       await frame!.sendBreakSignal();
       await Future.delayed(const Duration(milliseconds: 150));
 
       // send a clear() so we do not burn-in the display, and there's no fram UI for this app
-      response = await frame!.sendString('frame.display.text(" ", 50, 100);frame.display.show();print(0)', awaitResponse: true);
+      await frame!.sendString('frame.display.text(" ", 50, 100);frame.display.show();print(0)', awaitResponse: true);
       await Future.delayed(const Duration(milliseconds: 150));
 
       // clean up by deleting any prior camera script
-      response = await frame!.sendString('frame.file.remove("library_functions.lua");print(0)', awaitResponse: true);
+      await frame!.sendString('frame.file.remove("frame_app.lua");print(0)', awaitResponse: true);
 
       // upload the camera script
-      await frame!.uploadScript('library_functions.lua', 'assets/library_functions.lua');
-      response = await frame!.sendString('require("library_functions")', awaitResponse: false);
+      await frame!.uploadScript('frame_app.lua', 'assets/frame_app.lua');
+      await frame!.sendString('require("frame_app")', awaitResponse: false);
 
       _cameraReady = true;
        if (mounted) setState(() {});
@@ -116,46 +114,67 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
     await frame!.sendData(makeTakePhotoPayload());
 
     // the image data as a list of bytes that accumulates with each packet
-    // FIXME make a 25k buffer to start? Get filesize from Frame? Uint8List? ByteBuffer directly?
-    List<int> imageData = List.empty(growable: true);
+    ImageMetadata meta = ImageMetadata(_qualityValues[_qualityIndex].toInt(), _autoExpGainTimes, _meteringModeValues[_meteringModeIndex], _exposure, _shutterKp, _shutterLimit, _gainKp, _gainLimit);
+    Uint8List? imageData;
+    bool firstChunk = true;
+    int totalLength = 0;
+    int dataOffset = 0;
 
     // read the response for the photo we just requested - a stream of packets of bytes
     await for (final data in frame!.dataResponse) {
-      // non-final chunks have a first byte of 7
-      if (data[0] == nonFinalChunkFlag) {
-        imageData += data.sublist(1);
-      }
-      // the last chunk has a first byte of 8 so stop after this
-      else if (data[0] == finalChunkFlag) {
-        _stopwatch.stop();
-        // TODO atm the final chunk just has the final chunk flag and the total number of chunks sent
-        //imageData += data.sublist(1);
+      // image chunks have a first byte of 0x07
+      if (data[0] == imageChunkFlag) {
+        // first chunk has a 16-bit image length header, so pre-allocate the bytes
+        if (firstChunk) {
+          totalLength = data[1] << 8 | data[2];
+          imageData = Uint8List(totalLength);
+          imageData.setAll(dataOffset, data.skip(3));
+          dataOffset += data.length - 3;
+          firstChunk = false;
+        }
+        else {
+          imageData!.setAll(dataOffset, data.skip(1));
+          dataOffset += data.length - 1;
+        }
+        _log.fine('Chunk size: ${data.length}, dataOffset: $dataOffset');
 
-        try {
-          Image im = Image.memory(Uint8List.fromList(imageData));
-          _imageList.insert(0, im);
+        // if this chunk contained the final bytes of the image data
+        if (dataOffset == totalLength) {
+          _stopwatch.stop();
 
-          currentState = ApplicationState.running;
-          if (mounted) setState(() {});
-          _log.info('Image file size in bytes: ${imageData.length}, elapsedMs: ${_stopwatch.elapsedMilliseconds}');
-          _cameraReady = true;
-          // break out of the "await for" and stop listening to the stream
-          break;
+          try {
+            Image im = Image.memory(imageData);
+            _imageList.insert(0, im);
 
-        } catch (e) {
-          _log.severe('Error converting bytes to image: $e');
+            // add the size and elapsed time to the image metadata widget
+            meta.size = imageData.length;
+            meta.elapsedTimeMs = _stopwatch.elapsedMilliseconds;
+            _imageMeta.insert(0, meta);
 
-          currentState = ApplicationState.ready;
-          if (mounted) setState(() {});
-          break;
+            _log.info('Image file size in bytes: ${imageData.length}, elapsedMs: ${_stopwatch.elapsedMilliseconds}');
+            _cameraReady = true;
+
+            // Success. Break out of the "await for" and stop listening to the stream
+            currentState = ApplicationState.running;
+            if (mounted) setState(() {});
+            break;
+
+          } catch (e) {
+            _log.severe('Error converting bytes to image: $e');
+
+            currentState = ApplicationState.ready;
+            if (mounted) setState(() {});
+            break;
+          }
         }
       }
       else if (data[0] == SimpleFrameAppState.batteryStatusFlag) {
         // ignore
+        // TODO could remove if unexpected byte logging is removed
       }
       else {
+        // TODO could remove
         _log.severe('Unexpected initial byte: ${data[0]}');
-        frame!.dataResponse.drain([finalChunkFlag]);
         currentState = ApplicationState.ready;
         if (mounted) setState(() {});
         break;
@@ -366,7 +385,12 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
                     child: Transform(
                       alignment: Alignment.center,
                       transform: Matrix4.rotationZ(-pi*0.5),
-                      child: _imageList[index]
+                      child: Column(
+                        children: [
+                          _imageList[index],
+                          _imageMeta[index],
+                        ],
+                      )
                     )
                   );
                 },
@@ -380,5 +404,26 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
         persistentFooterButtons: pfb,
       ),
     );
+  }
+}
+
+class ImageMetadata extends StatelessWidget {
+  final int quality;
+  final int exposureRuns;
+  final String meteringMode;
+  final double exposure;
+  final double shutterKp;
+  final int shutterLimit;
+  final double gainKp;
+  final int gainLimit;
+
+  ImageMetadata(this.quality, this.exposureRuns, this.meteringMode, this.exposure, this.shutterKp, this.shutterLimit, this.gainKp, this.gainLimit, {super.key});
+
+  late int size;
+  late int elapsedTimeMs;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text('$quality / $exposureRuns / $meteringMode / $exposure \n$shutterKp / $shutterLimit / $gainKp / $gainLimit \n${size/1024}kb / ${elapsedTimeMs}ms');
   }
 }
