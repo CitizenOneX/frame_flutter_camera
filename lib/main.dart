@@ -75,11 +75,6 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
   Future<void> run() async {
     currentState = ApplicationState.running;
     if (mounted) setState(() {});
-    _stopwatch.reset();
-    _stopwatch.start();
-
-    // now send the lua command to request a photo from the Frame
-    await frame!.sendData(makeTakePhotoPayload());
 
     // the image data as a list of bytes that accumulates with each packet
     ImageMetadata meta = ImageMetadata(_qualityValues[_qualityIndex].toInt(), _autoExpGainTimes, _meteringModeValues[_meteringModeIndex], _exposure, _shutterKp, _shutterLimit, _gainKp, _gainLimit);
@@ -87,6 +82,11 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
     bool firstChunk = true;
     int totalLength = 0;
     int dataOffset = 0;
+
+    // now send the lua command to request a photo from the Frame
+    _stopwatch.reset();
+    _stopwatch.start();
+    await frame!.sendData(makeTakePhotoPayload());
 
     // read the response for the photo we just requested - a stream of packets of bytes
     await for (final data in frame!.dataResponse) {
