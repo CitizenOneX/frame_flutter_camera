@@ -277,6 +277,54 @@ mixin SimpleFrameAppState<T extends StatefulWidget> on State<T> {
     return Row(children: [Text('$_batt%'), Icon(i, size: 16,)]);
   }
 
+  List<Widget> getFooterButtonsWidget() {
+    // work out the states of the footer buttons based on the app state
+    List<Widget> pfb = [];
+
+    switch (currentState) {
+      case ApplicationState.disconnected:
+        pfb.add(TextButton(onPressed: scanOrReconnectFrame, child: const Text('Connect')));
+        pfb.add(const TextButton(onPressed: null, child: Text('Start')));
+        pfb.add(const TextButton(onPressed: null, child: Text('Stop')));
+        pfb.add(const TextButton(onPressed: null, child: Text('Disconnect')));
+        break;
+
+      case ApplicationState.initializing:
+      case ApplicationState.scanning:
+      case ApplicationState.connecting:
+      case ApplicationState.running:
+      case ApplicationState.stopping:
+      case ApplicationState.disconnecting:
+        pfb.add(const TextButton(onPressed: null, child: Text('Connect')));
+        pfb.add(const TextButton(onPressed: null, child: Text('Start')));
+        pfb.add(const TextButton(onPressed: null, child: Text('Stop')));
+        pfb.add(const TextButton(onPressed: null, child: Text('Disconnect')));
+        break;
+
+      case ApplicationState.connected:
+        pfb.add(const TextButton(onPressed: null, child: Text('Connect')));
+        pfb.add(TextButton(onPressed: startApplication, child: const Text('Start')));
+        pfb.add(const TextButton(onPressed: null, child: Text('Stop')));
+        pfb.add(TextButton(onPressed: disconnectFrame, child: const Text('Disconnect')));
+        break;
+
+      case ApplicationState.ready:
+        pfb.add(const TextButton(onPressed: null, child: Text('Connect')));
+        pfb.add(const TextButton(onPressed: null, child: Text('Start')));
+        pfb.add(TextButton(onPressed: stopApplication, child: const Text('Stop')));
+        pfb.add(const TextButton(onPressed: null, child: Text('Disconnect')));
+        break;
+    }
+    return pfb;
+  }
+
+    FloatingActionButton? getFloatingActionButtonWidget(Icon ready, Icon running) {
+    return currentState == ApplicationState.ready ?
+          FloatingActionButton(onPressed: run, child: ready) :
+        currentState == ApplicationState.running ?
+        FloatingActionButton(onPressed: cancel, child: running) : null;
+  }
+
   /// the SimpleFrameApp subclass can override with application-specific code if necessary
   Future<void> startApplication() async {
     // try to get the Frame into a known state by making sure there's no main loop running
@@ -317,4 +365,11 @@ mixin SimpleFrameAppState<T extends StatefulWidget> on State<T> {
     currentState = ApplicationState.connected;
     if (mounted) setState(() {});
   }
+
+
+  /// the SimpleFrameApp subclass implements application-specific code
+  Future<void> run();
+
+  /// the SimpleFrameApp subclass implements application-specific code
+  Future<void> cancel();
 }
