@@ -66,7 +66,7 @@ function camera_capture_and_send(args)
 			print(string.len(data)) -- TODO remove
 			if (data ~= nil) then
 				-- TODO check that image_size gets sent across properly, or do I need to string.char, string.byte etc?
-				pcall(frame.bluetooth.send, image_size .. IMAGE_CHUNK_FLAG .. string.char(chunk_index))
+				pcall(frame.bluetooth.send, string.char(image_size, 1) .. string.char(image_size, 2) .. IMAGE_CHUNK_FLAG .. string.char(chunk_index))
 			end
 		else
 			data = frame.camera.read(frame.bluetooth.max_length() - 4)
