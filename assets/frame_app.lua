@@ -2,8 +2,6 @@
 -- and wait for the main loop to pick it up for processing/drawing
 -- app_data contains all camera settings settable from the UI
 -- quality, exposure, metering mode, ...
-local app_data = { quality = 50, auto_exp_gain_times = 0, metering_mode = "SPOT", exposure = 0, shutter_kp = 0.1, shutter_limit = 6000, gain_kp = 1.0, gain_limit = 248.0}
-local take_photo = false
 local quality_values = {10, 25, 50, 100}
 local metering_values = {'SPOT', 'CENTER_WEIGHTED', 'AVERAGE'}
 
@@ -12,24 +10,102 @@ BATTERY_LEVEL_FLAG = 0x0c
 IMAGE_CHUNK_FLAG = 0x07
 
 -- Phone to Frame flags
-TAKE_PHOTO_FLAG = 0x0d
+TAKE_PHOTO_MSG = 0x0d
+
+-- accumulates chunks of input message into this table
+local app_data_accum = {}
+-- after table.concat, this table contains the message code mapped to the full input message payload
+local app_data_block = {}
+-- contains typed objects representing full messages
+local app_data = {}
+
+-- Data Handler: called when data arrives, must execute quickly.
+-- Update the app_data_accum item based on the contents of the current packet
+-- The first byte of the packet indicates the message type, and the item's key
+-- If the key is not present, initialise a new app data item
+-- Accumulate chunks of data of the specified type, for later processing
+-- TODO add reliability features (packet acknowledgement or dropped packet retransmission requests, message and packet sequence numbers)
+function update_app_data_accum(data)
+    local msg_flag = string.byte(data, 1)
+    local item = app_data_accum[msg_flag]
+    if item == nil or next(item) == nil then
+        item = { chunk_table = {}, num_chunks = 0, size = 0, recv_bytes = 0 }
+        app_data_accum[msg_flag] = item
+    end
+
+    if item.num_chunks == 0 then
+        -- first chunk of new data contains size (Uint16)
+        item.size = string.byte(data, 2) << 8 | string.byte(data, 3)
+        item.chunk_table[1] = string.sub(data, 4)
+        item.num_chunks = 1
+        item.recv_bytes = string.len(data) - 3
+
+        if item.recv_bytes == item.size then
+            app_data_block[msg_flag] = item.chunk_table[1]
+            item.size = 0
+            item.recv_bytes = 0
+            item.num_chunks = 0
+            item.chunk_table[1] = nil
+            app_data_accum[msg_flag] = item
+        end
+    else
+        item.chunk_table[item.num_chunks + 1] = string.sub(data, 2)
+        item.num_chunks = item.num_chunks + 1
+        item.recv_bytes = item.recv_bytes + string.len(data) - 1
+
+        -- if all bytes are received, concat and move message to block
+        -- but don't parse yet
+        if item.recv_bytes == item.size then
+            app_data_block[msg_flag] = table.concat(item.chunk_table)
+
+            for k, v in pairs(item.chunk_table) do item.chunk_table[k] = nil end
+            item.size = 0
+            item.recv_bytes = 0
+            item.num_chunks = 0
+            app_data_accum[msg_flag] = item
+        end
+    end
+end
+
+-- register the handler as a callback for all data sent from the host
+frame.bluetooth.receive_callback(update_app_data_accum)
 
 -- every time byte data arrives just extract the data payload from the message
 -- and save to the local app_data table so the main loop can pick it up and print it
-function data_handler(data)
-    if string.byte(data, 1) == TAKE_PHOTO_FLAG then
-        -- quality and metering mode are indices into arrays of values (0-based phoneside; 1-based in Lua)
-        -- exposure maps from 0..255 to -2.0..+2.0
-        app_data.quality = quality_values[string.byte(data, 2) + 1]
-        app_data.auto_exp_gain_times = string.byte(data, 3)
-        app_data.metering_mode = metering_values[string.byte(data, 4) + 1]
-        app_data.exposure = (string.byte(data, 5) - 128) / 64.0
-        app_data.shutter_kp = string.byte(data, 6) / 10.0
-        app_data.shutter_limit = string.byte(data, 7) << 8 | string.byte(data, 8)
-        app_data.gain_kp = string.byte(data, 9) / 10.0
-        app_data.gain_limit = string.byte(data, 10)
-		take_photo = true
+function parse_take_photo(data)
+	local take_photo = {}
+	-- quality and metering mode are indices into arrays of values (0-based phoneside; 1-based in Lua)
+	-- exposure maps from 0..255 to -2.0..+2.0
+	take_photo.quality = quality_values[string.byte(data, 2) + 1]
+	take_photo.auto_exp_gain_times = string.byte(data, 3)
+	take_photo.metering_mode = metering_values[string.byte(data, 4) + 1]
+	take_photo.exposure = (string.byte(data, 5) - 128) / 64.0
+	take_photo.shutter_kp = string.byte(data, 6) / 10.0
+	take_photo.shutter_limit = string.byte(data, 7) << 8 | string.byte(data, 8)
+	take_photo.gain_kp = string.byte(data, 9) / 10.0
+	take_photo.gain_limit = string.byte(data, 10)
+	return take_photo
+end
+
+-- register the respective message parsers
+local parsers = {}
+parsers[TAKE_PHOTO_FLAG] = parse_take_photo
+
+-- Works through app_data_block and if any items are ready, run the corresponding parser
+function process_raw_items()
+    local processed = 0
+
+    for flag, block in pairs(app_data_block) do
+        -- parse the app_data_block item into an app_data item
+        app_data[flag] = parsers[flag](block)
+
+        -- then clear out the raw data
+        app_data_block[flag] = nil
+
+        processed = processed + 1
     end
+
+    return processed
 end
 
 function camera_capture_and_send(args)
@@ -101,12 +177,19 @@ function app_loop()
     local last_batt_update = 0
 
 	while true do
-		if take_photo then
-			take_photo = false
+		-- process any raw items, if ready (parse into take_photo, then clear raw)
+		local items_ready = process_raw_items()
 
-			rc, err = pcall(camera_capture_and_send, app_data)
-			if rc == false then
-				print(err)
+		-- TODO tune sleep durations to optimise for data handler and processing
+		frame.sleep(0.005)
+
+		if items_ready > 0 then
+			if (app_data[TAKE_PHOTO_FLAG] ~= nil) then
+				rc, err = pcall(camera_capture_and_send, app_data)
+
+				if rc == false then
+					print(err)
+				end
 			end
 		end
 
@@ -115,9 +198,6 @@ function app_loop()
 		frame.sleep(0.1)
 	end
 end
-
--- register the handler as a callback for all data sent from the host
-frame.bluetooth.receive_callback(data_handler)
 
 -- run the main app loop
 app_loop()
