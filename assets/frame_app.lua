@@ -53,22 +53,14 @@ function camera_capture_and_send(args)
 	local image_size = 0
 	local bytes_sent = 0
 
-	-- TODO is it really true we need to pause here? earlier tests showed we didn't but now it seems we do(!)
-	-- TODO keep checking register 0x21 every few ms until it gives the same result twice in a row?
-	frame.sleep(0.25) -- 0.1? 0.2? 0.5? Quality dependent?
-	image_size = frame.fpga.read(0x21, 2)
-	print('Read size from reg 0x21:' .. tostring(string.byte(image_size, 1) << 8 | string.byte(image_size, 2)))
-	frame.sleep(0.25) -- 0.1? 0.2? 0.5? Quality dependent?
-	image_size = frame.fpga.read(0x21, 2)
-	print('Read size from reg 0x21:' .. tostring(string.byte(image_size, 1) << 8 | string.byte(image_size, 2)))
-	frame.sleep(0.25) -- 0.1? 0.2? 0.5? Quality dependent?
-	image_size = frame.fpga.read(0x21, 2)
-	print('Read size from reg 0x21:' .. tostring(string.byte(image_size, 1) << 8 | string.byte(image_size, 2)))
-	frame.sleep(0.25) -- 0.1? 0.2? 0.5? Quality dependent?
-	image_size = frame.fpga.read(0x21, 2)
-	print('Read size from reg 0x21:' .. tostring(string.byte(image_size, 1) << 8 | string.byte(image_size, 2)))
-
-	frame.sleep(2.0) -- 0.1? 0.2? 0.5? Quality dependent?
+	-- keep polling the available bytes until it stabilizes for 0.1s
+	local image_size = 0
+	local prev_size = -1
+	repeat
+		frame.sleep(0.1)
+		prev_size = image_size
+		image_size = frame.fpga.read(0x21, 2)
+	until (image_size == prev_size and image_size ~= 0)
 
 	local data = ''
 
@@ -76,31 +68,22 @@ function camera_capture_and_send(args)
 		if first_chunk then
 			first_chunk = false
 			data = frame.camera.read_raw(frame.bluetooth.max_length() - 6)
-			print('first data read: ' .. tostring(string.len(data)))
 			if (data ~= nil) then
 				pcall(frame.bluetooth.send, string.char(IMAGE_CHUNK_FLAG) .. string.char(string.byte(image_size, 1)) .. string.char(string.byte(image_size, 2)) .. data)
 				bytes_sent = bytes_sent + string.len(data)
-				frame.sleep(0.02)
+				frame.sleep(0.01)
 			end
 		else
 			data = frame.camera.read_raw(frame.bluetooth.max_length() - 4)
 			if (data == nil) then
 				break
 			else
-				print('next data read: ' .. tostring(string.len(data)))
 				pcall(frame.bluetooth.send, string.char(IMAGE_CHUNK_FLAG) .. data)
 				bytes_sent = bytes_sent + string.len(data)
-				frame.sleep(0.02)
+				frame.sleep(0.01)
 			end
 		end
-		print('total bytes sent: ' .. tostring(bytes_sent))
-
-		-- TODO remove after checking (bytes left to read?)
-		frame.sleep(0.25) -- 0.1? 0.2? 0.5? Quality dependent?
-		local fpga_remaining = frame.fpga.read(0x21, 2)
-		print('FPGA remaining from reg 0x21:' .. tostring(string.byte(fpga_remaining, 1) << 8 | string.byte(fpga_remaining, 2)))
 	end
-	print('final total bytes sent: ' .. tostring(bytes_sent))
 end
 
 function send_batt_if_elapsed(prev, interval)
