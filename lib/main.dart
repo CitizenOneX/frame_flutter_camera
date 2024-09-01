@@ -42,7 +42,7 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
   int _gainLimit = 248;     // 0 <= val <= 248
 
   MainAppState() {
-    Logger.root.level = Level.FINE;
+    Logger.root.level = Level.INFO;
     Logger.root.onRecord.listen((record) {
       debugPrint('${record.level.name}: ${record.time}: ${record.message}');
     });
@@ -87,6 +87,8 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
       int totalLength = 0;
       int dataOffset = 0;
 
+      // TODO ensure there's no leftover data from previous image transfers? Without an id specifying which request it's replying to, that's hard
+
       // now send the lua command to request a photo from the Frame
       _stopwatch.reset();
       _stopwatch.start();
@@ -97,7 +99,6 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
         // allow the user to cancel before the image has returned
         if (currentState != ApplicationState.running) {
           break;
-          // FIXME check if a subsequent photo works okay, or whether the dataResponse stream needs to be drained first
         }
 
         // image chunks have a first byte of 0x07
@@ -143,26 +144,16 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
               meta.elapsedTimeMs = _stopwatch.elapsedMilliseconds;
               _imageMeta.insert(0, meta);
 
-              _log.info('Image file size in bytes: ${imageData.length}, elapsedMs: ${_stopwatch.elapsedMilliseconds}');
+              _log.fine('Image file size in bytes: ${imageData.length}, elapsedMs: ${_stopwatch.elapsedMilliseconds}');
 
               // Success. Break out of the "await for" and stop listening to the stream
               break;
 
             } catch (e) {
               _log.severe('Error converting bytes to image: $e');
-
               break;
             }
           }
-        }
-        else if (data[0] == SimpleFrameAppState.batteryStatusFlag) {
-          // ignore, handled by SimpleFrameApp
-          // TODO remove when unexpected byte logging is removed
-        }
-        else {
-          // TODO could remove
-          _log.severe('Unexpected initial byte: ${data[0]}');
-          break;
         }
       }
     }
@@ -338,16 +329,15 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
                 itemBuilder: (context, index) {
                   return Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Transform(
-                      alignment: Alignment.center,
-                      transform: Matrix4.rotationZ(-pi*0.5),
-                      child: Column(
-                        children: [
-                          _imageList[index],
-                          // FIXME todo don't rotate the metadata, just the image
-                          _imageMeta[index],
-                        ],
-                      )
+                    child: Column(
+                      children: [
+                        Transform(
+                          alignment: Alignment.center,
+                          transform: Matrix4.rotationZ(-pi*0.5),
+                          child: _imageList[index]
+                        ),
+                        _imageMeta[index],
+                      ],
                     )
                   );
                 },
@@ -381,6 +371,14 @@ class ImageMetadata extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Text('$quality / $exposureRuns / $meteringMode / $exposure \n$shutterKp / $shutterLimit / $gainKp / $gainLimit \n${size/1024}kb / ${elapsedTimeMs}ms');
+    return Row(
+      children: [
+        Text('Quality: $quality\nExposureRuns: $exposureRuns\nMeteringMode: $meteringMode\nExposure: $exposure'),
+        const Spacer(),
+        Text('ShutterKp: $shutterKp\nShutterLim: $shutterLimit\nGainKp: $gainKp\nGainLim: $gainLimit'),
+        const Spacer(),
+        Text('Size: ${(size/1024).toStringAsFixed(1)} kb\nTime: $elapsedTimeMs ms'),
+      ],
+    );
   }
 }
