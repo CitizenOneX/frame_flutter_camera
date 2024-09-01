@@ -22,3 +22,5 @@ flutter:
   assets:
     - assets/frame_app.lua
     - assets/frame_app.min.lua
+    - assets/sfa_helper.lua
+    - assets/sfa_helper.min.lua
