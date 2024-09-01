@@ -3,6 +3,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:frame_flutter_camera/jpeg_helper.dart';
 import 'package:logging/logging.dart';
 import 'simple_frame_app.dart';
 
@@ -41,7 +42,7 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
   int _gainLimit = 248;     // 0 <= val <= 248
 
   MainAppState() {
-    Logger.root.level = Level.INFO;
+    Logger.root.level = Level.FINE;
     Logger.root.onRecord.listen((record) {
       debugPrint('${record.level.name}: ${record.time}: ${record.message}');
     });
@@ -76,76 +77,97 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
     currentState = ApplicationState.running;
     if (mounted) setState(() {});
 
-    // the image data as a list of bytes that accumulates with each packet
-    ImageMetadata meta = ImageMetadata(_qualityValues[_qualityIndex].toInt(), _autoExpGainTimes, _meteringModeValues[_meteringModeIndex], _exposure, _shutterKp, _shutterLimit, _gainKp, _gainLimit);
-    Uint8List? imageData;
-    bool firstChunk = true;
-    int totalLength = 0;
-    int dataOffset = 0;
+    try {
+      // the image data as a list of bytes that accumulates with each packet
+      ImageMetadata meta = ImageMetadata(_qualityValues[_qualityIndex].toInt(), _autoExpGainTimes, _meteringModeValues[_meteringModeIndex], _exposure, _shutterKp, _shutterLimit, _gainKp, _gainLimit);
+      Uint8List? imageData;
+      bool firstChunk = true;
+      int rawLength = 0;
+      int rawOffset = 0;
+      int totalLength = 0;
+      int dataOffset = 0;
 
-    // now send the lua command to request a photo from the Frame
-    _stopwatch.reset();
-    _stopwatch.start();
-    await frame!.sendData(makeTakePhotoPayload());
+      // now send the lua command to request a photo from the Frame
+      _stopwatch.reset();
+      _stopwatch.start();
+      await frame!.sendData(makeTakePhotoPayload());
 
-    // read the response for the photo we just requested - a stream of packets of bytes
-    await for (final data in frame!.dataResponse) {
-      // allow the user to cancel before the image has returned
-      if (currentState != ApplicationState.running) {
-        break;
-        // FIXME check if a subsequent photo works okay, or whether the dataResponse stream needs to be drained first
-      }
-
-      // image chunks have a first byte of 0x07
-      if (data[0] == imageChunkFlag) {
-        // first chunk has a 16-bit image length header, so pre-allocate the bytes
-        if (firstChunk) {
-          totalLength = data[1] << 8 | data[2];
-          imageData = Uint8List(totalLength);
-          imageData.setAll(dataOffset, data.skip(3));
-          dataOffset += data.length - 3;
-          firstChunk = false;
+      // read the response for the photo we just requested - a stream of packets of bytes
+      await for (final data in frame!.dataResponse) {
+        // allow the user to cancel before the image has returned
+        if (currentState != ApplicationState.running) {
+          break;
+          // FIXME check if a subsequent photo works okay, or whether the dataResponse stream needs to be drained first
         }
-        else {
-          imageData!.setAll(dataOffset, data.skip(1));
-          dataOffset += data.length - 1;
-        }
-        _log.fine('Chunk size: ${data.length}, dataOffset: $dataOffset');
 
-        // if this chunk contained the final bytes of the image data
-        if (dataOffset == totalLength) {
-          _stopwatch.stop();
+        // image chunks have a first byte of 0x07
+        if (data[0] == imageChunkFlag) {
+          // first chunk has a 16-bit image length header, so pre-allocate the bytes
+          if (firstChunk) {
+            Uint8List? jpegHeader = jpegHeaderMap[_qualityValues[_qualityIndex].toInt()];
+            rawLength = data[1] << 8 | data[2];
+            totalLength = rawLength + jpegHeader!.length + jpegFooter.length;
+            imageData = Uint8List(totalLength);
+            // first copy in the jpeg header for this quality level
+            imageData.setAll(0, jpegHeader);
+            dataOffset+= jpegHeader.length;
 
-          try {
-            Image im = Image.memory(imageData);
-            _imageList.insert(0, im);
+            // then copy the rest of this first packet
+            imageData.setAll(dataOffset, data.skip(3));
+            dataOffset += data.length - 3;
+            rawOffset += data.length - 3;
+            firstChunk = false;
+          }
+          else {
+            // copy all the raw data from the packet
+            imageData!.setAll(dataOffset, data.skip(1));
+            dataOffset += data.length - 1;
+            rawOffset += data.length - 1;
+          }
+          _log.fine('Chunk size: ${data.length-1}, rawOffset: $rawOffset of $rawLength');
 
-            // add the size and elapsed time to the image metadata widget
-            meta.size = imageData.length;
-            meta.elapsedTimeMs = _stopwatch.elapsedMilliseconds;
-            _imageMeta.insert(0, meta);
+          // if this chunk contained the final bytes of the image data
+          if (rawOffset == rawLength) {
+            // add the jpeg footer
+            imageData.setAll(dataOffset, jpegFooter);
+            dataOffset += jpegFooter.length;
 
-            _log.info('Image file size in bytes: ${imageData.length}, elapsedMs: ${_stopwatch.elapsedMilliseconds}');
+            _stopwatch.stop();
 
-            // Success. Break out of the "await for" and stop listening to the stream
-            break;
+            try {
+              Image im = Image.memory(imageData);
+              _imageList.insert(0, im);
 
-          } catch (e) {
-            _log.severe('Error converting bytes to image: $e');
+              // add the size and elapsed time to the image metadata widget
+              meta.size = imageData.length;
+              meta.elapsedTimeMs = _stopwatch.elapsedMilliseconds;
+              _imageMeta.insert(0, meta);
 
-            break;
+              _log.info('Image file size in bytes: ${imageData.length}, elapsedMs: ${_stopwatch.elapsedMilliseconds}');
+
+              // Success. Break out of the "await for" and stop listening to the stream
+              break;
+
+            } catch (e) {
+              _log.severe('Error converting bytes to image: $e');
+
+              break;
+            }
           }
         }
+        else if (data[0] == SimpleFrameAppState.batteryStatusFlag) {
+          // ignore, handled by SimpleFrameApp
+          // TODO remove when unexpected byte logging is removed
+        }
+        else {
+          // TODO could remove
+          _log.severe('Unexpected initial byte: ${data[0]}');
+          break;
+        }
       }
-      else if (data[0] == SimpleFrameAppState.batteryStatusFlag) {
-        // ignore, handled by SimpleFrameApp
-        // TODO remove when unexpected byte logging is removed
-      }
-      else {
-        // TODO could remove
-        _log.severe('Unexpected initial byte: ${data[0]}');
-        break;
-      }
+    }
+    catch (e) {
+      _log.severe('Error executing application: $e');
     }
 
     currentState = ApplicationState.ready;
@@ -322,6 +344,7 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
                       child: Column(
                         children: [
                           _imageList[index],
+                          // FIXME todo don't rotate the metadata, just the image
                           _imageMeta[index],
                         ],
                       )
