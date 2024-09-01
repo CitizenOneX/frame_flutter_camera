@@ -20,7 +20,7 @@ class MainApp extends StatefulWidget {
 
 class MainAppState extends State<MainApp> with SimpleFrameAppState {
   // Phone to Frame flags
-  static const takePhotoFlag = 0x0d;
+  static const takePhotoMsg = 0x0d;
   // Frame to Phone flags
   static const imageChunkFlag = 0x07;
 
@@ -42,7 +42,7 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
   int _gainLimit = 248;     // 0 <= val <= 248
 
   MainAppState() {
-    Logger.root.level = Level.INFO;
+    Logger.root.level = Level.FINE;
     Logger.root.onRecord.listen((record) {
       debugPrint('${record.level.name}: ${record.time}: ${record.message}');
     });
@@ -68,7 +68,7 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
     int intShutLimLsb = _shutterLimit & 0xFF;
     int intGainKp = (_gainKp * 10).toInt();
 
-    return [takePhotoFlag, _qualityIndex, _autoExpGainTimes, _meteringModeIndex,
+    return [takePhotoMsg, 0, 9, _qualityIndex, _autoExpGainTimes, _meteringModeIndex,
             intExp, intShutKp, intShutLimMsb, intShutLimLsb, intGainKp, _gainLimit];
   }
 
