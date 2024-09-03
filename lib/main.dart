@@ -42,7 +42,7 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
   int _gainLimit = 248;     // 0 <= val <= 248
 
   MainAppState() {
-    Logger.root.level = Level.FINE;
+    Logger.root.level = Level.INFO;
     Logger.root.onRecord.listen((record) {
       debugPrint('${record.level.name}: ${record.time}: ${record.message}');
     });
@@ -68,7 +68,8 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
     int intShutLimLsb = _shutterLimit & 0xFF;
     int intGainKp = (_gainKp * 10).toInt();
 
-    return [takePhotoMsg, 0, 9, _qualityIndex, _autoExpGainTimes, _meteringModeIndex,
+    // data byte 0x01, MSG_TYPE 0x0d, msg_length(Uint16), then 9 bytes of camera settings
+    return [1, takePhotoMsg, 0, 9, _qualityIndex, _autoExpGainTimes, _meteringModeIndex,
             intExp, intShutKp, intShutLimMsb, intShutLimLsb, intGainKp, _gainLimit];
   }
 
@@ -92,7 +93,7 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
       // now send the lua command to request a photo from the Frame
       _stopwatch.reset();
       _stopwatch.start();
-      await frame!.sendData(makeTakePhotoPayload());
+      await frame!.sendDataRaw(makeTakePhotoPayload());
 
       // read the response for the photo we just requested - a stream of packets of bytes
       await for (final data in frame!.dataResponse) {
