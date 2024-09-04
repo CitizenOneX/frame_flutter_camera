@@ -36,6 +36,7 @@ Stream<Uint8List> imageDataResponseWholeJpeg(Stream<List<int>> dataResponse) {
           // When full image data is received, emit it and clear the buffer
           controller.add(Uint8List.fromList(imageData));
           imageData.clear();
+          rawOffset = 0;
         }
         _log.fine('Chunk size: ${data.length-1}, rawOffset: $rawOffset');
       },
