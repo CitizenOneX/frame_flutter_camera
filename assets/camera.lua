@@ -5,6 +5,19 @@ _M = {}
 local IMAGE_MSG = 0x07
 local IMAGE_FINAL_MSG = 0x08
 
+function clear_display()
+    frame.display.text(" ", 1, 1)
+    frame.display.show()
+    frame.sleep(0.04)
+end
+
+function show_flash()
+	frame.display.bitmap(241, 191, 160, 2, 0, string.rep("\xFF", 400))
+	frame.display.bitmap(311, 121, 20, 2, 0, string.rep("\xFF", 400))
+    frame.display.show()
+    frame.sleep(0.04)
+end
+
 function _M.camera_capture_and_send(args)
 	quality = args.quality or 50
 	auto_exp_gain_times = args.auto_exp_gain_times or 0
@@ -20,7 +33,9 @@ function _M.camera_capture_and_send(args)
 		frame.sleep(0.1)
 	end
 
+	show_flash()
 	frame.camera.capture { quality_factor = quality }
+	clear_display()
 	-- TODO can this value be reduced?
 	frame.sleep(0.1)
 
