@@ -3,9 +3,9 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'image_data_response_wholejpeg.dart';
 import 'package:logging/logging.dart';
 import 'camera.dart';
-import 'jpeg_helper.dart';
 import 'simple_frame_app.dart';
 
 void main() => runApp(const MainApp());
@@ -20,8 +20,8 @@ class MainApp extends StatefulWidget {
 }
 
 class MainAppState extends State<MainApp> with SimpleFrameAppState {
-  // Frame to Phone flags
-  static const imageChunkFlag = 0x07;
+  // stream subscription to pull application data back from camera
+  StreamSubscription<Uint8List>? _imageDataResponseStream;
 
   // the list of images to show in the scolling list view
   final List<Image> _imageList = [];
@@ -55,89 +55,51 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
     try {
       // the image data as a list of bytes that accumulates with each packet
       ImageMetadata meta = ImageMetadata(_qualityValues[_qualityIndex].toInt(), _autoExpGainTimes, _meteringModeValues[_meteringModeIndex], _exposure, _shutterKp, _shutterLimit, _gainKp, _gainLimit);
-      Uint8List? imageData;
-      bool firstChunk = true;
-      int rawLength = 0;
-      int rawOffset = 0;
-      int totalLength = 0;
-      int dataOffset = 0;
 
-      // TODO ensure there's no leftover data from previous image transfers? Without an id specifying which request it's replying to, that's hard
+      try {
+        // set up the data response handler for the photos
+        _imageDataResponseStream = imageDataResponseWholeJpeg(frame!.dataResponse).listen((imageData) {
+          // received a whole-image Uint8List with jpeg header and footer included
+          _stopwatch.stop();
 
-      // now send the lua command to request a photo from the Frame
+          // unsubscribe from the image stream now (to also release the underlying data stream subscription)
+          _imageDataResponseStream?.cancel();
+
+          try {
+            Image im = Image.memory(imageData);
+
+            // add the size and elapsed time to the image metadata widget
+            meta.size = imageData.length;
+            meta.elapsedTimeMs = _stopwatch.elapsedMilliseconds;
+
+            _log.fine('Image file size in bytes: ${imageData.length}, elapsedMs: ${_stopwatch.elapsedMilliseconds}');
+
+            setState(() {
+              _imageList.insert(0, im);
+              _imageMeta.insert(0, meta);
+            });
+
+            currentState = ApplicationState.ready;
+            if (mounted) setState(() {});
+
+          } catch (e) {
+            _log.severe('Error converting bytes to image: $e');
+          }
+        });
+      } catch (e) {
+        _log.severe('Error reading image data response: $e');
+        // unsubscribe from the image stream now (to also release the underlying data stream subscription)
+        _imageDataResponseStream?.cancel();
+      }
+
+      // send the lua command to request a photo from the Frame
       _stopwatch.reset();
       _stopwatch.start();
       await frame!.sendDataRaw(CameraSettingsMsg.pack(_qualityIndex, _autoExpGainTimes, _meteringModeIndex, _exposure, _shutterKp, _shutterLimit, _gainKp, _gainLimit));
-
-      // read the response for the photo we just requested - a stream of packets of bytes
-      await for (final data in frame!.dataResponse) {
-        // allow the user to cancel before the image has returned
-        if (currentState != ApplicationState.running) {
-          break;
-        }
-
-        // image chunks have a first byte of 0x07
-        if (data[0] == imageChunkFlag) {
-          // first chunk has a 16-bit image length header, so pre-allocate the bytes
-          if (firstChunk) {
-            Uint8List? jpegHeader = jpegHeaderMap[_qualityValues[_qualityIndex].toInt()];
-            rawLength = data[1] << 8 | data[2];
-            totalLength = rawLength + jpegHeader!.length + jpegFooter.length;
-            imageData = Uint8List(totalLength);
-            // first copy in the jpeg header for this quality level
-            imageData.setAll(0, jpegHeader);
-            dataOffset+= jpegHeader.length;
-
-            // then copy the rest of this first packet
-            imageData.setAll(dataOffset, data.skip(3));
-            dataOffset += data.length - 3;
-            rawOffset += data.length - 3;
-            firstChunk = false;
-          }
-          else {
-            // copy all the raw data from the packet
-            imageData!.setAll(dataOffset, data.skip(1));
-            dataOffset += data.length - 1;
-            rawOffset += data.length - 1;
-          }
-          _log.fine('Chunk size: ${data.length-1}, rawOffset: $rawOffset of $rawLength');
-
-          // if this chunk contained the final bytes of the image data
-          if (rawOffset == rawLength) {
-            // add the jpeg footer
-            imageData.setAll(dataOffset, jpegFooter);
-            dataOffset += jpegFooter.length;
-
-            _stopwatch.stop();
-
-            try {
-              Image im = Image.memory(imageData);
-              _imageList.insert(0, im);
-
-              // add the size and elapsed time to the image metadata widget
-              meta.size = imageData.length;
-              meta.elapsedTimeMs = _stopwatch.elapsedMilliseconds;
-              _imageMeta.insert(0, meta);
-
-              _log.fine('Image file size in bytes: ${imageData.length}, elapsedMs: ${_stopwatch.elapsedMilliseconds}');
-
-              // Success. Break out of the "await for" and stop listening to the stream
-              break;
-
-            } catch (e) {
-              _log.severe('Error converting bytes to image: $e');
-              break;
-            }
-          }
-        }
-      }
     }
     catch (e) {
       _log.severe('Error executing application: $e');
     }
-
-    currentState = ApplicationState.ready;
-    if (mounted) setState(() {});
   }
 
   /// cancel the current photo

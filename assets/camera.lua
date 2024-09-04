@@ -3,6 +3,7 @@ _M = {}
 
 -- Frame to phone flags
 local IMAGE_MSG = 0x07
+local IMAGE_FINAL_MSG = 0x08
 
 function _M.camera_capture_and_send(args)
 	quality = args.quality or 50
@@ -20,40 +21,23 @@ function _M.camera_capture_and_send(args)
 	end
 
 	frame.camera.capture { quality_factor = quality }
+	-- TODO can this value be reduced?
+	frame.sleep(0.1)
 
-	local first_chunk = true
-	local image_size = 0
 	local bytes_sent = 0
-
-	-- keep polling the available bytes until it stabilizes for 0.1s
-	local image_size = 0
-	local prev_size = -1
-	repeat
-		frame.sleep(0.1)
-		prev_size = image_size
-		image_size = frame.fpga.read(0x21, 2)
-	until (image_size == prev_size and image_size ~= 0)
 
 	local data = ''
 
 	while true do
-		if first_chunk then
-			first_chunk = false
-			data = frame.camera.read_raw(frame.bluetooth.max_length() - 6)
-			if (data ~= nil) then
-				pcall(frame.bluetooth.send, string.char(IMAGE_MSG) .. string.char(string.byte(image_size, 1)) .. string.char(string.byte(image_size, 2)) .. data)
-				bytes_sent = bytes_sent + string.len(data)
-				frame.sleep(0.02)
-			end
+        data = frame.camera.read(frame.bluetooth.max_length() - 4)
+        if (data ~= nil) then
+            pcall(frame.bluetooth.send, string.char(IMAGE_MSG) .. data)
+            bytes_sent = bytes_sent + string.len(data)
+            frame.sleep(0.0125)
 		else
-			data = frame.camera.read_raw(frame.bluetooth.max_length() - 4)
-			if (data == nil) then
-				break
-			else
-				pcall(frame.bluetooth.send, string.char(IMAGE_MSG) .. data)
-				bytes_sent = bytes_sent + string.len(data)
-				frame.sleep(0.02)
-			end
+            pcall(frame.bluetooth.send, string.char(IMAGE_FINAL_MSG))
+            frame.sleep(0.0125)
+            break
 		end
 	end
 end
