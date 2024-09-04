@@ -3,8 +3,9 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:frame_flutter_camera/jpeg_helper.dart';
 import 'package:logging/logging.dart';
+import 'camera.dart';
+import 'jpeg_helper.dart';
 import 'simple_frame_app.dart';
 
 void main() => runApp(const MainApp());
@@ -19,8 +20,6 @@ class MainApp extends StatefulWidget {
 }
 
 class MainAppState extends State<MainApp> with SimpleFrameAppState {
-  // Phone to Frame flags
-  static const takePhotoMsg = 0x0d;
   // Frame to Phone flags
   static const imageChunkFlag = 0x07;
 
@@ -48,31 +47,6 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
     });
   }
 
-  /// Corresponding parser in frame_app.lua data_handler()
-  List<int> makeTakePhotoPayload() {
-    // exposure is a double in the range -2.0 to 2.0, so map that to an unsigned byte 0..255
-    // by multiplying by 64, adding 128 and truncating
-    int intExp;
-    if (_exposure >= 2.0) {
-      intExp = 255;
-    }
-    else if (_exposure <= -2.0) {
-      intExp = 0;
-    }
-    else {
-      intExp = ((_exposure * 64) + 128).floor();
-    }
-
-    int intShutKp = (_shutterKp * 10).toInt();
-    int intShutLimMsb = _shutterLimit >> 8;
-    int intShutLimLsb = _shutterLimit & 0xFF;
-    int intGainKp = (_gainKp * 10).toInt();
-
-    // data byte 0x01, MSG_TYPE 0x0d, msg_length(Uint16), then 9 bytes of camera settings
-    return [1, takePhotoMsg, 0, 9, _qualityIndex, _autoExpGainTimes, _meteringModeIndex,
-            intExp, intShutKp, intShutLimMsb, intShutLimLsb, intGainKp, _gainLimit];
-  }
-
   @override
   Future<void> run() async {
     currentState = ApplicationState.running;
@@ -93,7 +67,7 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
       // now send the lua command to request a photo from the Frame
       _stopwatch.reset();
       _stopwatch.start();
-      await frame!.sendDataRaw(makeTakePhotoPayload());
+      await frame!.sendDataRaw(CameraSettingsMsg.pack(_qualityIndex, _autoExpGainTimes, _meteringModeIndex, _exposure, _shutterKp, _shutterLimit, _gainKp, _gainLimit));
 
       // read the response for the photo we just requested - a stream of packets of bytes
       await for (final data in frame!.dataResponse) {
