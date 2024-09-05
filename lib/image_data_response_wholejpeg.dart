@@ -9,6 +9,8 @@ final _log = Logger("ImageDR");
 const nonFinalChunkFlag = 0x07;
 const finalChunkFlag = 0x08;
 
+/// Pairs with frame.camera.read(), that is, jpeg header and contents and footer
+/// are expected to be sent from Frame, using non-final and final message types
 Stream<Uint8List> imageDataResponseWholeJpeg(Stream<List<int>> dataResponse) {
   // the image data as a list of bytes that accumulates with each packet
   List<int> imageData = List.empty(growable: true);

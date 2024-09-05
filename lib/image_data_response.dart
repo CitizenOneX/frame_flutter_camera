@@ -8,65 +8,65 @@ import 'jpeg_helper.dart';
 final _log = Logger("ImageDR");
 
 // Frame to Phone flags
-const imageChunkFlag = 0x07;
+const nonFinalChunkFlag = 0x07;
+const finalChunkFlag = 0x08;
 
-Stream<Uint8List> imageDataResponse(Stream<List<int>> dataResponse) {
-  late StreamController<Uint8List> controller;
-  Uint8List? buffer;
-  int? totalLength;
-  int rawLength = 0;
+/// Pairs with frame.camera.read_raw(), that is, jpeg header and footer
+/// are not sent from Frame - only the content, using non-final and final message types
+/// Jpeg header and footer are added in here on the client, so a quality level
+/// must be provided to select the correct header
+Stream<Uint8List> imageDataResponse(Stream<List<int>> dataResponse, int qualityLevel) {
+  // qualityLevel must be valid (10, 25, 50, 100)
+  if (!jpegHeaderMap.containsKey(qualityLevel)) {
+    throw Exception('Invalid quality level for jpeg: $qualityLevel - must be one of: ${jpegHeaderMap.keys}');
+  }
+
+  // the image data as a list of bytes that accumulates with each packet
+  List<int> imageData = List.empty(growable: true);
   int rawOffset = 0;
-  int dataOffset = 0;
 
-  controller = StreamController<Uint8List>(
-    onListen: () {
-      dataResponse.where((data) => data[0] == imageChunkFlag).listen((data) {
-        if (buffer == null && data.length >= 3) {
-          // Extract the image length from the first two bytes
-          rawLength = (data[1] << 8) + data[2];
-          _log.fine('rawLength set to: $rawLength');
+  // add the jpeg header bytes for this quality level (623 bytes)
+  imageData.addAll(jpegHeaderMap[qualityLevel]!);
 
-          // FIXME needs to get correct quality level for this imageDataResponse
-          Uint8List? jpegHeader = jpegHeaderMap[50];
-          totalLength = rawLength + jpegHeader!.length + jpegFooter.length;
+  // the subscription to the underlying data stream
+  StreamSubscription<List<int>>? dataResponseSubs;
 
-          buffer = Uint8List(totalLength!);
-          buffer!.setAll(0, jpegHeader);
-          dataOffset += jpegHeader.length;
+  // Our stream controller that transforms/accumulates the raw data into images (as bytes)
+  StreamController<Uint8List> controller = StreamController();
 
-          buffer!.setAll(dataOffset, data.skip(3));
-          dataOffset += data.length - 3;
-          rawOffset += data.length - 3;
-
-        } else {
-          // copy all the raw data from the packet
-          try {
-            buffer!.setAll(dataOffset, data.skip(1));
-            dataOffset += data.length - 1;
-            rawOffset += data.length - 1;
-          } catch (e) {
-            _log.severe('error copying body packet over: $e');
-          }
+  controller.onListen = () {
+    dataResponseSubs = dataResponse
+      .where((data) => data[0] == nonFinalChunkFlag || data[0] == finalChunkFlag)
+      .listen((data) {
+        if (data[0] == nonFinalChunkFlag) {
+          imageData += data.sublist(1);
+          rawOffset += data.length - 1;
         }
-        _log.fine('Chunk size: ${data.length-1}, rawOffset: $rawOffset of $rawLength');
+        // the last chunk has a first byte of 8 so stop after this
+        else if (data[0] == finalChunkFlag) {
+          imageData += data.sublist(1);
+          rawOffset += data.length - 1;
 
-        // if this chunk contained the final bytes of the image data
-        if (rawOffset >= rawLength) {
-          // add the jpeg footer
-          try {
-            buffer!.setAll(dataOffset, jpegFooter);
-            dataOffset += jpegFooter.length;
-          } catch (e) {
-            _log.severe('error copying footer packet over: $e');
-          }
+          // add the jpeg footer bytes (2 bytes)
+          imageData.addAll(jpegFooter);
 
           // When full image data is received, emit it and clear the buffer
-          controller.add(buffer!);
+          controller.add(Uint8List.fromList(imageData));
+          imageData.clear();
+          rawOffset = 0;
         }
-      }, onDone: controller.close, onError: controller.addError);
-    },
-    //onCancel: controller.close,
-  );
+        _log.fine('Chunk size: ${data.length-1}, rawOffset: $rawOffset');
+      },
+      onDone: controller.close,
+      onError: controller.addError);
+      _log.fine('Controller being listened to');
+  };
+
+  controller.onCancel = () {
+    dataResponseSubs?.cancel();
+    controller.close();
+    _log.fine('Controller cancelled');
+  };
 
   return controller.stream;
 }

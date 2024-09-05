@@ -3,7 +3,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'image_data_response_wholejpeg.dart';
+import 'image_data_response.dart';
 import 'package:logging/logging.dart';
 import 'camera.dart';
 import 'simple_frame_app.dart';
@@ -58,7 +58,7 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
 
       try {
         // set up the data response handler for the photos
-        _imageDataResponseStream = imageDataResponseWholeJpeg(frame!.dataResponse).listen((imageData) {
+        _imageDataResponseStream = imageDataResponse(frame!.dataResponse, _qualityValues[_qualityIndex].toInt()).listen((imageData) {
           // received a whole-image Uint8List with jpeg header and footer included
           _stopwatch.stop();
 

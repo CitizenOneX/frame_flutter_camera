@@ -44,7 +44,7 @@ function _M.camera_capture_and_send(args)
 	local data = ''
 
 	while true do
-        data = frame.camera.read(frame.bluetooth.max_length() - 4)
+        data = frame.camera.read_raw(frame.bluetooth.max_length() - 4)
         if (data ~= nil) then
             pcall(frame.bluetooth.send, string.char(IMAGE_MSG) .. data)
             bytes_sent = bytes_sent + string.len(data)
