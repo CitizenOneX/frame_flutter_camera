@@ -100,6 +100,8 @@ mixin SimpleFrameAppState<T extends StatefulWidget> on State<T> {
         await Future.delayed(const Duration(milliseconds: 500));
         await frame!.sendBreakSignal();
 
+        await frame!.sendString('print("Connected to Frame " .. frame.FIRMWARE_VERSION)');
+
         // Frame is ready to go!
         currentState = ApplicationState.connected;
         if (mounted) setState(() {});
