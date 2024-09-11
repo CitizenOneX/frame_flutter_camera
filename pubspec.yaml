@@ -9,8 +9,9 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  flutter_blue_plus: ^1.32.7
   logging: ^1.2.0
+  simple_frame_app:
+    git: https://github.com/CitizenOneX/simple_frame_app.git
 
 dev_dependencies:
   flutter_test:

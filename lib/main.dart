@@ -3,10 +3,10 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'image_data_response.dart';
 import 'package:logging/logging.dart';
-import 'camera.dart';
-import 'simple_frame_app.dart';
+import 'package:simple_frame_app/camera_settings.dart';
+import 'package:simple_frame_app/image_data_response.dart';
+import 'package:simple_frame_app/simple_frame_app.dart';
 
 void main() => runApp(const MainApp());
 
