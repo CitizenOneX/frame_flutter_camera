@@ -36,8 +36,10 @@ function _M.camera_capture_and_send(args)
 	show_flash()
 	frame.camera.capture { quality_factor = quality }
 	clear_display()
-	-- TODO can this value be reduced?
-	frame.sleep(0.1)
+	-- wait until the capture is finished and the image is ready before continuing
+	while not frame.camera.image_ready() do
+		frame.sleep(0.05)
+	end
 
 	local bytes_sent = 0
 
