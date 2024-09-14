@@ -4,9 +4,9 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
-import 'package:simple_frame_app/camera_settings.dart';
 import 'package:simple_frame_app/image_data_response.dart';
 import 'package:simple_frame_app/simple_frame_app.dart';
+import 'package:simple_frame_app/tx/camera_settings.dart';
 
 void main() => runApp(const MainApp());
 
@@ -95,7 +95,16 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
       // send the lua command to request a photo from the Frame
       _stopwatch.reset();
       _stopwatch.start();
-      await frame!.sendDataRaw(CameraSettingsMsg.pack(_qualityIndex, _autoExpGainTimes, _meteringModeIndex, _exposure, _shutterKp, _shutterLimit, _gainKp, _gainLimit));
+      await frame!.sendMessage(TxCameraSettings(
+        msgCode: 0x0d,
+        qualityIndex: _qualityIndex,
+        autoExpGainTimes: _autoExpGainTimes,
+        meteringModeIndex: _meteringModeIndex,
+        exposure: _exposure,
+        shutterKp: _shutterKp,
+        shutterLimit: _shutterLimit,
+        gainKp: _gainKp,
+        gainLimit: _gainLimit));
     }
     catch (e) {
       _log.severe('Error executing application: $e');
