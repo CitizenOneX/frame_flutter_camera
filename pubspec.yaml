@@ -21,7 +21,7 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-    - assets/battery.min.lua
-    - assets/camera.min.lua
-    - assets/data.min.lua
+    - packages/simple_frame_app/lua/battery.min.lua
+    - packages/simple_frame_app/lua/camera.min.lua
+    - packages/simple_frame_app/lua/data.min.lua
     - assets/frame_app.min.lua
