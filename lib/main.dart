@@ -29,16 +29,16 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
   final Stopwatch _stopwatch = Stopwatch();
 
   // camera settings
-  int _qualityIndex = 2;
+  int _qualityIndex = 0;
   final List<double> _qualityValues = [10, 25, 50, 100];
-  double _exposure = 0.0; // -2.0 <= val <= 2.0
-  int _meteringModeIndex = 0;
-  final List<String> _meteringModeValues = ['SPOT', 'CENTER_WEIGHTED', 'AVERAGE'];
-  int _autoExpGainTimes = 0; // val >= 0; number of times auto exposure and gain algorithm will be run every 100ms
-  double _shutterKp = 0.1;  // val >= 0 (we offer 0.1 .. 0.5)
-  int _shutterLimit = 6000; // 4 < val < 16383
-  double _gainKp = 1.0;     // val >= 0 (we offer 1.0 .. 5.0)
-  int _gainLimit = 248;     // 0 <= val <= 248
+  int _meteringIndex = 2;
+  final List<String> _meteringValues = ['SPOT', 'CENTER_WEIGHTED', 'AVERAGE'];
+  int _autoExpGainTimes = 1; // val >= 0; number of times auto exposure and gain algorithm will be run every 100ms
+  double _exposure = 0.18; // 0.0 <= val <= 1.0
+  double _exposureSpeed = 0.5;  // 0.0 <= val <= 1.0
+  int _shutterLimit = 800; // 4 < val < 16383
+  int _analogGainLimit = 248;     // 0 <= val <= 248
+  double _whiteBalanceSpeed = 0.5;  // 0.0 <= val <= 1.0
 
   MainAppState() {
     Logger.root.level = Level.INFO;
@@ -54,7 +54,7 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
 
     try {
       // the image data as a list of bytes that accumulates with each packet
-      ImageMetadata meta = ImageMetadata(_qualityValues[_qualityIndex].toInt(), _autoExpGainTimes, _meteringModeValues[_meteringModeIndex], _exposure, _shutterKp, _shutterLimit, _gainKp, _gainLimit);
+      ImageMetadata meta = ImageMetadata(_qualityValues[_qualityIndex].toInt(), _autoExpGainTimes, _meteringValues[_meteringIndex], _exposure, _exposureSpeed, _shutterLimit, _analogGainLimit, _whiteBalanceSpeed);
 
       try {
         // set up the data response handler for the photos
@@ -99,12 +99,13 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
         msgCode: 0x0d,
         qualityIndex: _qualityIndex,
         autoExpGainTimes: _autoExpGainTimes,
-        meteringModeIndex: _meteringModeIndex,
+        meteringIndex: _meteringIndex,
         exposure: _exposure,
-        shutterKp: _shutterKp,
+        exposureSpeed: _exposureSpeed,
         shutterLimit: _shutterLimit,
-        gainKp: _gainKp,
-        gainLimit: _gainLimit));
+        analogGainLimit: _analogGainLimit,
+        whiteBalanceSpeed: _whiteBalanceSpeed,
+      ));
     }
     catch (e) {
       _log.severe('Error executing application: $e');
@@ -171,18 +172,18 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
                 ),
               ),
               ListTile(
-                title: const Text('Metering Mode'),
+                title: const Text('Metering'),
                 subtitle: DropdownButton<int>(
-                  value: _meteringModeIndex,
+                  value: _meteringIndex,
                   onChanged: (int? newValue) {
                     setState(() {
-                      _meteringModeIndex = newValue!;
+                      _meteringIndex = newValue!;
                     });
                   },
-                  items: _meteringModeValues
+                  items: _meteringValues
                       .map<DropdownMenuItem<int>>((String value) {
                     return DropdownMenuItem<int>(
-                      value: _meteringModeValues.indexOf(value),
+                      value: _meteringValues.indexOf(value),
                       child: Text(value),
                     );
                   }).toList(),
@@ -192,9 +193,9 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
                 title: const Text('Exposure'),
                 subtitle: Slider(
                   value: _exposure,
-                  min: -2,
-                  max: 2,
-                  divisions: 8,
+                  min: 0,
+                  max: 1,
+                  divisions: 20,
                   label: _exposure.toString(),
                   onChanged: (value) {
                     setState(() {
@@ -204,16 +205,16 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
                 ),
               ),
               ListTile(
-                title: const Text('Shutter KP'),
+                title: const Text('Exposure Speed'),
                 subtitle: Slider(
-                  value: _shutterKp,
-                  min: 0.1,
-                  max: 0.5,
-                  divisions: 4,
-                  label: _shutterKp.toStringAsFixed(1),
+                  value: _exposureSpeed,
+                  min: 0,
+                  max: 1,
+                  divisions: 20,
+                  label: _exposureSpeed.toString(),
                   onChanged: (value) {
                     setState(() {
-                      _shutterKp = value;
+                      _exposureSpeed = value;
                     });
                   },
                 ),
@@ -234,31 +235,31 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
                 ),
               ),
               ListTile(
-                title: const Text('Gain KP'),
+                title: const Text('Analog Gain Limit'),
                 subtitle: Slider(
-                  value: _gainKp,
-                  min: 1.0,
-                  max: 5.0,
-                  divisions: 4,
-                  label: _gainKp.toStringAsFixed(1),
+                  value: _analogGainLimit.toDouble(),
+                  min: 0,
+                  max: 248,
+                  divisions: 8,
+                  label: _analogGainLimit.toStringAsFixed(0),
                   onChanged: (value) {
                     setState(() {
-                      _gainKp = value;
+                      _analogGainLimit = value.toInt();
                     });
                   },
                 ),
               ),
               ListTile(
-                title: const Text('Gain Limit'),
+                title: const Text('White Balance Speed'),
                 subtitle: Slider(
-                  value: _gainLimit.toDouble(),
+                  value: _whiteBalanceSpeed,
                   min: 0,
-                  max: 248,
-                  divisions: 8,
-                  label: _gainLimit.toStringAsFixed(0),
+                  max: 1,
+                  divisions: 20,
+                  label: _whiteBalanceSpeed.toString(),
                   onChanged: (value) {
                     setState(() {
-                      _gainLimit = value.toInt();
+                      _whiteBalanceSpeed = value;
                     });
                   },
                 ),
@@ -303,14 +304,14 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
 class ImageMetadata extends StatelessWidget {
   final int quality;
   final int exposureRuns;
-  final String meteringMode;
+  final String metering;
   final double exposure;
-  final double shutterKp;
+  final double exposureSpeed;
   final int shutterLimit;
-  final double gainKp;
-  final int gainLimit;
+  final int analogGainLimit;
+  final double whiteBalanceSpeed;
 
-  ImageMetadata(this.quality, this.exposureRuns, this.meteringMode, this.exposure, this.shutterKp, this.shutterLimit, this.gainKp, this.gainLimit, {super.key});
+  ImageMetadata(this.quality, this.exposureRuns, this.metering, this.exposure, this.exposureSpeed, this.shutterLimit, this.analogGainLimit, this.whiteBalanceSpeed, {super.key});
 
   late int size;
   late int elapsedTimeMs;
@@ -319,9 +320,9 @@ class ImageMetadata extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Text('Quality: $quality\nExposureRuns: $exposureRuns\nMeteringMode: $meteringMode\nExposure: $exposure'),
+        Text('Quality: $quality\nExposureRuns: $exposureRuns\nMetering: $metering\nExposure: $exposure'),
         const Spacer(),
-        Text('ShutterKp: $shutterKp\nShutterLim: $shutterLimit\nGainKp: $gainKp\nGainLim: $gainLimit'),
+        Text('ExposureSpeed: $exposureSpeed\nShutterLim: $shutterLimit\nAnalogGainLim: $analogGainLimit\nWBSpeed: $whiteBalanceSpeed'),
         const Spacer(),
         Text('Size: ${(size/1024).toStringAsFixed(1)} kb\nTime: $elapsedTimeMs ms'),
       ],
