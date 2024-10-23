@@ -4,7 +4,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
-import 'package:simple_frame_app/image_data_response.dart';
+import 'package:simple_frame_app/rx/photo.dart';
 import 'package:simple_frame_app/simple_frame_app.dart';
 import 'package:simple_frame_app/tx/camera_settings.dart';
 
@@ -21,7 +21,7 @@ class MainApp extends StatefulWidget {
 
 class MainAppState extends State<MainApp> with SimpleFrameAppState {
   // stream subscription to pull application data back from camera
-  StreamSubscription<Uint8List>? _imageDataResponseStream;
+  StreamSubscription<Uint8List>? _photoStream;
 
   // the list of images to show in the scolling list view
   final List<Image> _imageList = [];
@@ -58,12 +58,12 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
 
       try {
         // set up the data response handler for the photos
-        _imageDataResponseStream = imageDataResponse(frame!.dataResponse, _qualityValues[_qualityIndex].toInt()).listen((imageData) {
+        _photoStream = RxPhoto(qualityLevel: _qualityValues[_qualityIndex].toInt()).attach(frame!.dataResponse).listen((imageData) {
           // received a whole-image Uint8List with jpeg header and footer included
           _stopwatch.stop();
 
           // unsubscribe from the image stream now (to also release the underlying data stream subscription)
-          _imageDataResponseStream?.cancel();
+          _photoStream?.cancel();
 
           try {
             Image im = Image.memory(imageData);
@@ -89,7 +89,7 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
       } catch (e) {
         _log.severe('Error reading image data response: $e');
         // unsubscribe from the image stream now (to also release the underlying data stream subscription)
-        _imageDataResponseStream?.cancel();
+        _photoStream?.cancel();
       }
 
       // send the lua command to request a photo from the Frame
