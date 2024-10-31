@@ -24,7 +24,7 @@ if (flutterVersionName == null) {
 
 android {
     namespace "com.example.frame_flutter_camera"
-    compileSdk flutter.compileSdkVersion
+    compileSdk 34 // share_plus
     ndkVersion flutter.ndkVersion
 
     compileOptions {

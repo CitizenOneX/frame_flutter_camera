@@ -3,7 +3,9 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:image/image.dart' as img;
 import 'package:logging/logging.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:simple_frame_app/rx/photo.dart';
 import 'package:simple_frame_app/simple_frame_app.dart';
 import 'package:simple_frame_app/tx/camera_settings.dart';
@@ -26,6 +28,7 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
   // the list of images to show in the scolling list view
   final List<Image> _imageList = [];
   final List<StatelessWidget> _imageMeta = [];
+  final List<Uint8List> _jpegBytes = [];
   final Stopwatch _stopwatch = Stopwatch();
 
   // camera settings
@@ -102,6 +105,7 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
             setState(() {
               _imageList.insert(0, im);
               _imageMeta.insert(0, meta);
+              _jpegBytes.insert(0, imageData);
             });
 
             currentState = ApplicationState.ready;
@@ -428,7 +432,10 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
                         Transform(
                           alignment: Alignment.center,
                           transform: Matrix4.rotationZ(-pi*0.5),
-                          child: _imageList[index]
+                          child: GestureDetector(
+                            onTap: () => _shareImage(_imageList[index], _imageMeta[index], _jpegBytes[index]),
+                            child: _imageList[index]
+                          )
                         ),
                         _imageMeta[index],
                       ],
@@ -445,6 +452,23 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
         persistentFooterButtons: getFooterButtonsWidget(),
       ),
     );
+  }
+
+  void _shareImage(Image image, StatelessWidget metadata, Uint8List jpegBytes) async {
+    try {
+    // Share the image bytes as a JPEG file
+    img.Image im = img.decodeImage(jpegBytes)!;
+    // rotate the image 90 degrees counterclockwise since the Frame camera is rotated 90 clockwise
+    img.Image rotatedImage = img.copyRotate(im, angle: 270);
+
+    await Share.shareXFiles(
+      [XFile.fromData(Uint8List.fromList(img.encodeJpg(rotatedImage)), mimeType: 'image/jpeg', name: 'image.jpg')],
+      text: 'Frame camera image',
+    );
+    }
+    catch (e) {
+      _log.severe('Error preparing image for sharing: $e');
+    }
   }
 }
 
