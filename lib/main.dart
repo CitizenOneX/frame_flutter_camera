@@ -48,8 +48,8 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
   double _whiteBalanceSpeed = 0.5;  // 0.0 <= val <= 1.0
 
   // manual exposure/gain parameters
-  int _manualShutter = 800; // 4 < val < 16383
-  int _manualAnalogGain = 124;     // 0 <= val <= 248
+  int _manualShutter = 16383; // 4 < val < 16383
+  int _manualAnalogGain = 1;     // 0 (1?) <= val <= 248
   int _manualRedGain = 64; // 0 <= val <= 1023
   int _manualGreenGain = 64; // 0 <= val <= 1023
   int _manualBlueGain = 64; // 0 <= val <= 1023
@@ -60,6 +60,15 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
     Logger.root.onRecord.listen((record) {
       debugPrint('${record.level.name}: ${record.time}: ${record.message}');
     });
+  }
+
+  @override
+  void initState() {
+    super.initState();
+
+    // if possible, connect right away and load files on Frame
+    // note: camera app wouldn't necessarily run on start
+    tryScanAndConnectAndStart(andRun: false);
   }
 
   @override
