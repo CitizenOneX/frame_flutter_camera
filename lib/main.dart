@@ -29,7 +29,7 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState, FrameVisionA
   final List<Uint8List> _jpegBytes = [];
 
   MainAppState() {
-    Logger.root.level = Level.FINE;
+    Logger.root.level = Level.INFO;
     Logger.root.onRecord.listen((record) {
       debugPrint('${record.level.name}: ${record.time}: ${record.message}');
     });
