@@ -12,7 +12,7 @@ dependencies:
   image: ^4.3.0
   logging: ^1.2.0
   share_plus: ^10.1.0
-  simple_frame_app: ^1.7.0
+  simple_frame_app: ^4.0.1
 
 dev_dependencies:
   flutter_test:
@@ -24,5 +24,7 @@ flutter:
   assets:
     - packages/simple_frame_app/lua/battery.min.lua
     - packages/simple_frame_app/lua/camera.min.lua
+    - packages/simple_frame_app/lua/code.min.lua
     - packages/simple_frame_app/lua/data.min.lua
+    - packages/simple_frame_app/lua/plain_text.min.lua
     - assets/frame_app.min.lua
