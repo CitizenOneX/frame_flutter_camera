@@ -12,7 +12,7 @@ dependencies:
   image: ^4.3.0
   logging: ^1.2.0
   share_plus: ^10.1.0
-  simple_frame_app: ^4.0.1
+  simple_frame_app: ^4.0.2
 
 dev_dependencies:
   flutter_test:

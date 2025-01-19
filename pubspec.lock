@@ -308,10 +308,10 @@ packages:
     dependency: "direct main"
     description:
       name: simple_frame_app
-      sha256: "0dcb0b93fc89bcc255de82bb283b85164fe2c1a62bb3f3a20eb151ee0817d1e3"
+      sha256: "3879c70c4f4b28de90d019e96a4f3cda76e9c795ae55159c91a9693ece194184"
       url: "https://pub.dev"
     source: hosted
-    version: "4.0.1"
+    version: "4.0.2"
   sky_engine:
     dependency: transitive
     description: flutter
