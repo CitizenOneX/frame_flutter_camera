@@ -6,7 +6,7 @@ import 'package:logging/logging.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:simple_frame_app/frame_vision_app.dart';
 import 'package:simple_frame_app/simple_frame_app.dart';
-import 'package:simple_frame_app/tx/plain_text.dart';
+import 'package:frame_msg/tx/plain_text.dart';
 
 void main() => runApp(const MainApp());
 
@@ -47,12 +47,8 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState, FrameVisionA
   @override
   Future<void> onRun() async {
     // initial message to display when running
-    await frame!.sendMessage(
-      TxPlainText(
-        msgCode: 0x0a,
-        text: '2-Tap: take photo'
-      )
-    );
+    var msg = TxPlainText(msgCode: 0x0a, text: '2-Tap: take photo');
+    await frame!.sendMessage(msg.msgCode, msg.pack());
   }
 
   @override
