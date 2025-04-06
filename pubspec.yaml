@@ -1,5 +1,5 @@
 name: frame_flutter_camera
-description: "Finds Frame in connected System Bluetooth Devices, initiates a photo capture and returns the image with metadata to the host app for display in a list."
+description: "Finds and connects to Brilliant Labs Frame, initiates a photo capture and returns the image with metadata to the host app for display in a list and sharing."
 publish_to: 'none'
 version: 0.1.0
 
@@ -10,10 +10,10 @@ dependencies:
   flutter:
     sdk: flutter
   image: ^4.3.0
-  frame_msg: ^1.0.1
+  frame_msg: ^2.0.0
   logging: ^1.2.0
   share_plus: ^10.1.0
-  simple_frame_app: ^6.0.3
+  simple_frame_app: ^7.0.0
 
 dev_dependencies:
   flutter_test:
