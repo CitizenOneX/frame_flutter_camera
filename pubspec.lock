@@ -196,10 +196,10 @@ packages:
     dependency: transitive
     description:
       name: frame_ble
-      sha256: d0c3964739085972fd7be8515abfee353202353eb81f1e9bb9ad2a0846f6f877
+      sha256: e60e6448985ec8f190afd85e384108d6052441a22237c1fb6f0b71c8c4046a9c
       url: "https://pub.dev"
     source: hosted
-    version: "1.0.2"
+    version: "3.0.0"
   frame_msg:
     dependency: "direct main"
     description:
@@ -404,10 +404,10 @@ packages:
     dependency: "direct main"
     description:
       name: simple_frame_app
-      sha256: "20a86fb3874697e87d90c3071010a9f78b3f36a41d6c18cdc37c11288b29179f"
+      sha256: "399c36d92c70581ea695c09e1aab3ff3653a87f89531e51a530bab615be73fc2"
       url: "https://pub.dev"
     source: hosted
-    version: "7.0.0"
+    version: "7.1.0"
   sky_engine:
     dependency: transitive
     description: flutter

@@ -13,7 +13,7 @@ dependencies:
   frame_msg: ^2.0.0
   logging: ^1.2.0
   share_plus: ^10.1.0
-  simple_frame_app: ^7.0.0
+  simple_frame_app: ^7.1.0
 
 dev_dependencies:
   flutter_test:
